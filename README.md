@@ -1,8 +1,3 @@
-Siap. Saya rapikan menjadi **README.md yang utuh**, dengan struktur yang jelas: deskripsi → fitur → role → arsitektur → database → SQL → koneksi Supabase → autentikasi → Storage → RLS → run/build → keamanan.
-
-Berikut versi yang bisa langsung kamu salin ke `README.md`:
-
-````markdown
 # TALog20
 
 ## Aplikasi Logbook & Monitoring Tugas SMKN 20 Jakarta
