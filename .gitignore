@@ -1,0 +1,105 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# Local secrets and env files
+.env
+.env.*
+!.env.example
+!.env.sample
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.jks
+*.keystore
+*.p8
+*.mobileprovision
+*.secret
+**/*secret*
+**/*credential*
+**/*credentials*
+**/*token*
+**/*service-account*.json
+**/local.properties
+**/key.properties
+**/*.local
+**/*.config.local
+
+# IDE and editor metadata
+.idea/
+.vscode/
+.metadata
+.android_home/
+.gradle/
+.gradle_home/
+.gradle_build_temp/
+.gradle_final/
+.gradle_local/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+**/build/
+**/generated/
+**/*.generated.*
+**/*.g.dart
+**/*.freezed.dart
+**/*.mocks.dart
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android/iOS build outputs
+*.apk
+*.aab
+*.ipa
+*.app
+*.exe
+*.msix
+*.dmg
+**/android/**/build/
+**/ios/**/build/
+**/macos/**/build/
+**/linux/**/build/
+**/windows/**/build/
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Local configuration and generated ephemeral files
+**/Flutter/ephemeral/
+**/.dart_tool/
+**/*.log
+**/local_settings.json
+**/config.*
+**/*.local.*
+
+# Local audit archives
+*-audit-*.zip
+
+supabase/.temp/
