@@ -21,6 +21,7 @@ migrate_working_dir/
 **/.env.*
 !**/.env.example
 !**/.env.sample
+**/flutter_native_integration.env
 *.pem
 *.key
 *.p12
