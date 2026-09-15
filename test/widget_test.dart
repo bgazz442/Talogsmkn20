@@ -4,8 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:talog20/auth_service.dart';
 import 'package:talog20/dashboard_service.dart';
 import 'package:talog20/main.dart';
+import 'package:talog20/supabase_config.dart';
 
 void main() {
+  test('Supabase configuration values are available as build-time constants', () {
+    expect(SupabaseConfig.url, isA<String>());
+    expect(SupabaseConfig.anonKey, isA<String>());
+    expect(SupabaseConfig.isConfigured, isA<bool>());
+  });
+
   test('audit error formatter hides raw PostgrestException output', () {
     final message = AuthService.formatAuditError(
       "PostgrestException(message: Could not find the table 'public.audit_logs' in the schema cache, code: PGRST205, details: Not Found)",

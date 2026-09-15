@@ -25,6 +25,7 @@ applied:
 202609070003_grade_actor_compatibility.sql
 202609080002_admin_dashboard_fixes.sql
 202609080003_fix_role_switch_order.sql
+202609150001_superadmin_user_auth_sync.sql
 ```
 
 If `202609040004_complete_setup.sql` was already applied, do not run it again
@@ -38,6 +39,10 @@ The final hardening migrations are additive. They lock audit writes behind
 `log_audit_event`, add realtime publication membership for task flow tables,
 and preserve teacher identity while allowing admin/superadmin grading through
 `grades.grader_user_id`.
+
+The user management migration makes the Super Admin user list join
+`public.profiles` with `auth.users`, so profiles without a current Supabase
+Auth account are not displayed.
 
 After applying them, verify realtime and presence in the SQL editor:
 

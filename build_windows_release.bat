@@ -27,8 +27,8 @@ if errorlevel 1 (
 )
 
 flutter build windows --release ^
-  --dart-define=SUPABASE_URL="%SUPABASE_URL%" ^
-  --dart-define=SUPABASE_ANON_KEY="%SUPABASE_ANON_KEY%"
+  --dart-define=SUPABASE_URL=%SUPABASE_URL% ^
+  --dart-define=SUPABASE_ANON_KEY=%SUPABASE_ANON_KEY%
 
 if errorlevel 1 (
     echo ERROR: build windows release gagal.

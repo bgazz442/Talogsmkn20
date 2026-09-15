@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'auth_service.dart';
 import 'dashboard_service.dart';
+import 'supabase_config.dart';
 import 'talog_design_system.dart';
 
 const ink = TalogColors.primaryNavy,
@@ -15,46 +15,11 @@ const ink = TalogColors.primaryNavy,
     violet = TalogColors.deptRPL,
     orange = TalogColors.accentOrange;
 
-String _readRuntimeConfigValue(String key) {
-  final fromDefine = String.fromEnvironment(key);
-  if (fromDefine.isNotEmpty) return fromDefine;
-
-  final env = Platform.environment;
-  if (env.containsKey(key) && (env[key] ?? '').trim().isNotEmpty) {
-    return env[key]!.trim();
-  }
-
-  if (Platform.isWindows) {
-    final appData = Platform.environment['APPDATA'] ??
-        Platform.environment['LOCALAPPDATA'] ??
-        Platform.environment['USERPROFILE'];
-    if (appData != null && appData.isNotEmpty) {
-      final configPath = '$appData\\Talog20\\supabase.env';
-      final file = File(configPath);
-      if (file.existsSync()) {
-        for (final rawLine in file.readAsLinesSync()) {
-          final line = rawLine.trim();
-          if (line.isEmpty || line.startsWith('#')) continue;
-          final index = line.indexOf('=');
-          if (index <= 0) continue;
-          final name = line.substring(0, index).trim();
-          final value = line.substring(index + 1).trim();
-          if (name == key && value.isNotEmpty) {
-            return value;
-          }
-        }
-      }
-    }
-  }
-
-  return '';
-}
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final supabaseUrl = _readRuntimeConfigValue('SUPABASE_URL');
-  final supabasePublishableKey = _readRuntimeConfigValue('SUPABASE_ANON_KEY');
+  final supabaseUrl = SupabaseConfig.url;
+  final supabasePublishableKey = SupabaseConfig.anonKey;
 
   if (supabaseUrl.isEmpty || supabasePublishableKey.isEmpty) {
     runApp(const ConfigurationErrorApp());
@@ -91,17 +56,15 @@ class ConfigurationErrorApp extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Jalankan Flutter dengan SUPABASE_URL dan SUPABASE_ANON_KEY, atau letakkan file supabase.env di %APPDATA%\\Talog20\\supabase.env.',
+                  'Jalankan build dengan SUPABASE_URL dan SUPABASE_ANON_KEY yang valid.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
                 SelectableText(
-                  'flutter run --dart-define=SUPABASE_URL=... '
-                  '--dart-define=SUPABASE_ANON_KEY=...\n'
-                  'Atau isi file:\n'
-                  '%APPDATA%\\Talog20\\supabase.env\n'
-                  'SUPABASE_URL=https://...\n'
-                  'SUPABASE_ANON_KEY=...',
+                  'flutter build apk --release --dart-define=SUPABASE_URL=... '
+                  '--dart-define=SUPABASE_ANON_KEY=...\n\n'
+                  'flutter build windows --release --dart-define=SUPABASE_URL=... '
+                  '--dart-define=SUPABASE_ANON_KEY=...',
                   textAlign: TextAlign.center,
                 ),
               ],

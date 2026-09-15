@@ -385,13 +385,10 @@ class AuthService {
 
   Future<List<Map<String, dynamic>>> searchUsers(String query) async {
     final clean = query.trim().toLowerCase();
-    var builder = client
-        .from('profiles')
-        .select('id, full_name, email, role, status, created_at');
-    if (clean.isNotEmpty) {
-      builder = builder.or('email.ilike.%$clean%,full_name.ilike.%$clean%');
-    }
-    final rows = await builder.order('created_at', ascending: false).limit(50);
+    final rows = await client.rpc(
+      'list_managed_users',
+      params: {'p_query': clean},
+    );
     return List<Map<String, dynamic>>.from(rows);
   }
 
