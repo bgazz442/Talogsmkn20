@@ -38,6 +38,9 @@ dependencies:
   mime: ^2.1.0
   supabase_flutter: ^2.17.2
   url_launcher: ^6.3.1
+  flutter_secure_storage: ^9.2.2
+  path_provider: ^2.1.4
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:

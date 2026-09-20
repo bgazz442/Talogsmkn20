@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 
 import 'package:talog20/auth_service.dart';
@@ -314,18 +314,60 @@ void main() {
     expect(find.byTooltip('Ganti Password'), findsNothing);
   });
 
-  testWidgets('TALog20 login and registration navigation', (WidgetTester tester) async {
+  // Registrasi mandiri siswa telah dihapus pada Sesi 2.
+  // Pembuatan akun kini hanya melalui Super Admin.
+  testWidgets('login page does not show student self-registration link', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
 
     expect(find.text('Selamat datang.'), findsOneWidget);
     expect(find.text('Masuk untuk melanjutkan aktivitas Anda di TALog20.'), findsOneWidget);
 
-    final registrationLink = find.text('Belum punya akun siswa?  Daftar sekarang ->');
-    await tester.ensureVisible(registrationLink);
-    await tester.tap(registrationLink);
-    await tester.pumpAndSettle();
+    // Link registrasi mandiri siswa tidak boleh muncul
+    expect(find.text('Belum punya akun siswa?  Daftar sekarang ->'), findsNothing);
+  });
 
-    expect(find.text('Daftar sekarang.'), findsOneWidget);
-    expect(find.text('BUAT AKUN SISWA  /  01 / 01'), findsOneWidget);
+  test('password recovery redirect url and deep link consistency', () {
+    expect(
+      AuthService.recoveryDeepLink,
+      'id.sch.smkn20.talog20://reset-password',
+    );
+    expect(
+      AuthService.recoveryRedirectUrl,
+      contains('reset-password'),
+    );
+  });
+
+  testWidgets('login page shows email and password fields', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: LoginPage(),
+      ),
+    );
+
+    expect(find.text('Selamat datang.'), findsOneWidget);
+    expect(find.text('Email'), findsOneWidget);
+    expect(find.text('Password'), findsOneWidget);
+    // Tidak ada tombol registrasi mandiri siswa
+    expect(find.text('Belum punya akun siswa?  Daftar sekarang ->'), findsNothing);
+  });
+
+  testWidgets('password recovery page renders inputs and validates mismatched confirmation', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: PasswordRecoveryPage(),
+      ),
+    );
+
+    expect(find.text('Buat Password Baru'), findsOneWidget);
+    expect(find.text('Password baru'), findsOneWidget);
+    expect(find.text('Konfirmasi password baru'), findsOneWidget);
+    expect(find.text('Simpan Password Baru  ->'), findsOneWidget);
+
+    // Tap submit without typing password
+    await tester.tap(find.text('Simpan Password Baru  ->'));
+    await tester.pump();
+
+    expect(find.text('Password baru dan konfirmasi wajib diisi.'), findsOneWidget);
   });
 }
+

@@ -1,12 +1,14 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:math';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'auth_service.dart';
 import 'dashboard_service.dart';
-import 'supabase_config.dart';
 import 'talog_design_system.dart';
 
 const ink = TalogColors.primaryNavy,
@@ -17,20 +19,18 @@ const ink = TalogColors.primaryNavy,
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  final supabaseUrl = SupabaseConfig.url;
-  final supabasePublishableKey = SupabaseConfig.anonKey;
-
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  const supabasePublishableKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+  debugPrint('SUPABASE_URL runtime: $supabaseUrl');
+  debugPrint('SUPABASE_KEY configured: ${supabasePublishableKey.isNotEmpty ? "YES (length: ${supabasePublishableKey.length})" : "NO"}');
   if (supabaseUrl.isEmpty || supabasePublishableKey.isEmpty) {
     runApp(const ConfigurationErrorApp());
     return;
   }
-
   await Supabase.initialize(
     url: supabaseUrl,
     publishableKey: supabasePublishableKey,
   );
-
   runApp(const MyApp());
 }
 
@@ -56,14 +56,12 @@ class ConfigurationErrorApp extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Jalankan build dengan SUPABASE_URL dan SUPABASE_ANON_KEY yang valid.',
+                  'Jalankan Flutter dengan SUPABASE_URL dan SUPABASE_ANON_KEY.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
                 SelectableText(
-                  'flutter build apk --release --dart-define=SUPABASE_URL=... '
-                  '--dart-define=SUPABASE_ANON_KEY=...\n\n'
-                  'flutter build windows --release --dart-define=SUPABASE_URL=... '
+                  'flutter run --dart-define=SUPABASE_URL=... '
                   '--dart-define=SUPABASE_ANON_KEY=...',
                   textAlign: TextAlign.center,
                 ),
@@ -78,96 +76,20 @@ class ConfigurationErrorApp extends StatelessWidget {
 
 SupabaseClient get supabase => Supabase.instance.client;
 
-enum DashboardTimeCategory { morning, afternoon, evening, night }
-
-class DashboardTimeThemeSpec {
-  const DashboardTimeThemeSpec({
-    required this.category,
-    required this.background,
-    required this.surface,
-    required this.panel,
-    required this.appBar,
-    required this.accent,
-    required this.text,
-    required this.muted,
-  });
-
-  final DashboardTimeCategory category;
-  final Color background;
-  final Color surface;
-  final Color panel;
-  final Color appBar;
-  final Color accent;
-  final Color text;
-  final Color muted;
-
-  static DashboardTimeThemeSpec resolve(DateTime now) {
-    final hour = now.hour;
-    if (hour >= 5 && hour < 11) {
-      return const DashboardTimeThemeSpec(
-        category: DashboardTimeCategory.morning,
-        background: Color(0xfffdf5ee),
-        surface: Color(0xfffffaf6),
-        panel: Color(0xffffffff),
-        appBar: Color(0xfff3a864),
-        accent: Color(0xfff4a261),
-        text: Color(0xff1f1f24),
-        muted: Color(0xff6b5a4a),
-      );
-    }
-    if (hour >= 11 && hour < 16) {
-      return const DashboardTimeThemeSpec(
-        category: DashboardTimeCategory.afternoon,
-        background: Color(0xfff3f8ff),
-        surface: Color(0xfff9fbff),
-        panel: Color(0xffffffff),
-        appBar: Color(0xff7bb8ff),
-        accent: Color(0xff4a90e2),
-        text: Color(0xff162338),
-        muted: Color(0xff5e6b7d),
-      );
-    }
-    if (hour >= 16 && hour < 19) {
-      return const DashboardTimeThemeSpec(
-        category: DashboardTimeCategory.evening,
-        background: Color(0xfff6efe8),
-        surface: Color(0xfffdf6f0),
-        panel: Color(0xffffffff),
-        appBar: Color(0xffd98b4f),
-        accent: Color(0xffd97706),
-        text: Color(0xff1e1c1a),
-        muted: Color(0xff6a4a3a),
-      );
-    }
-    return const DashboardTimeThemeSpec(
-      category: DashboardTimeCategory.night,
-      background: Color(0xff0f172a),
-      surface: Color(0xff111c2b),
-      panel: Color(0xff182335),
-      appBar: Color(0xff0b1220),
-      accent: Color(0xff7dd3fc),
-      text: Color(0xffedf6ff),
-      muted: Color(0xff9bb2d1),
-    );
-  }
-}
-
-String getRealtimeGreeting({String? username}) {
+String getRealtimeGreeting() {
   final hour = DateTime.now().hour;
-  final name = (username ?? '').trim();
-  final base = hour >= 5 && hour < 11
-      ? 'Good Morning'
-      : hour >= 11 && hour < 16
-      ? 'Good Afternoon'
-      : hour >= 16 && hour < 19
-      ? 'Good Evening'
-      : 'Good Night';
-  return name.isEmpty ? base : '$base, $name';
+  if (hour >= 5 && hour < 12) {
+    return 'Good Morning';
+  } else if (hour >= 12 && hour < 18) {
+    return 'Good Afternoon';
+  } else {
+    return 'Good Night';
+  }
 }
 
 bool isNightTime() {
   final hour = DateTime.now().hour;
-  return hour >= 19 || hour < 5;
+  return hour >= 18 || hour < 5;
 }
 
 String _readableDate(Object? value) {
@@ -220,9 +142,7 @@ String readableAuthError(String rawMessage, {bool isLogin = false}) {
     return 'Email/username atau password salah, atau akun belum dibuat di project Supabase ini.';
   }
   if (message.contains('user not found')) {
-    return isLogin
-        ? 'Akun tidak ditemukan. Periksa email atau username Anda.'
-        : 'Akun tidak ditemukan.';
+    return isLogin ? 'Akun tidak ditemukan. Periksa email atau username Anda.' : 'Akun tidak ditemukan.';
   }
   return rawMessage;
 }
@@ -309,19 +229,13 @@ class _AuthGateState extends State<AuthGate> {
 
     final authClient = client;
     if (authClient == null) return;
-    debugPrint(
-      'AuthGate accepting authenticated session for user id=${nextSession.user.id}',
-    );
+    debugPrint('AuthGate accepting authenticated session for user id=${nextSession.user.id}');
     setState(() {
       session = nextSession;
-      profileFuture = AuthService(authClient)
-          .getActiveProfile(nextSession.user.id)
-          .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () => throw TimeoutException(
-              'Profile timeout: profile tidak merespons dalam 15 detik.',
-            ),
-          );
+      profileFuture = AuthService(authClient).getActiveProfile(nextSession.user.id).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw TimeoutException('Profile timeout: profile tidak merespons dalam 15 detik.'),
+      );
     });
   }
 
@@ -336,18 +250,14 @@ class _AuthGateState extends State<AuthGate> {
     final authClient = client;
     final activeSession = session;
     final activeProfileFuture = profileFuture;
-    if (authClient == null ||
-        activeSession == null ||
-        activeProfileFuture == null) {
+    if (authClient == null || activeSession == null || activeProfileFuture == null) {
       return const LoginPage();
     }
     return FutureBuilder<UserProfile>(
       future: activeProfileFuture,
       builder: (context, profileSnapshot) {
         if (profileSnapshot.connectionState != ConnectionState.done) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
         if (profileSnapshot.hasError || !profileSnapshot.hasData) {
           final error = profileSnapshot.error;
@@ -355,13 +265,11 @@ class _AuthGateState extends State<AuthGate> {
           final message = error is AuthException
               ? readableAuthError(error.message)
               : error is PostgrestException && error.code == '42501'
-              ? 'Profil akun berhasil login tetapi tidak dapat diakses. Periksa policy/RLS tabel profiles.'
-              : 'Login berhasil, tetapi profil pengguna tidak dapat dimuat. Silakan coba lagi.';
+                  ? 'Profil akun berhasil login tetapi tidak dapat diakses. Periksa policy/RLS tabel profiles.'
+                  : 'Login berhasil, tetapi profil pengguna tidak dapat dimuat. Silakan coba lagi.';
           return SessionProblemPage(message: message);
         }
-        debugPrint(
-          'AuthGate profile ready. role=${profileSnapshot.data!.role.name}',
-        );
+        debugPrint('AuthGate profile ready. role=${profileSnapshot.data!.role.name}');
         return RoleHome(profile: profileSnapshot.data!);
       },
     );
@@ -386,19 +294,11 @@ class SessionProblemPage extends StatelessWidget {
               const SizedBox(height: 28),
               const Text(
                 'Sesi belum dapat digunakan',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: ink,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: ink),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: muted),
-              ),
+              Text(message, textAlign: TextAlign.center, style: const TextStyle(color: muted)),
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: () async {
@@ -453,23 +353,16 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => error = 'Email/Username dan password wajib diisi.');
       return;
     }
-    setState(() {
-      loading = true;
-      error = null;
-    });
+    setState(() { loading = true; error = null; });
     try {
-      await AuthService(
-        supabase,
-      ).signIn(loginInput: loginInput, password: password);
+      await AuthService(supabase).signIn(
+        loginInput: loginInput,
+        password: password,
+      );
     } on AuthException catch (exception) {
-      setState(
-        () => error = readableAuthError(exception.message, isLogin: true),
-      );
+      setState(() => error = readableAuthError(exception.message, isLogin: true));
     } on PostgrestException catch (_) {
-      setState(
-        () => error =
-            'Login berhasil, tetapi profile pengguna belum dapat dibaca.',
-      );
+      setState(() => error = 'Login berhasil, tetapi profile pengguna belum dapat dibaca.');
     } catch (e) {
       setState(() => error = e.toString().replaceAll('Exception: ', ''));
     } finally {
@@ -478,13 +371,10 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void showResetPasswordDialog() {
-    final resetEmailController = TextEditingController(
-      text: loginController.text,
-    );
+    final resetEmailController = TextEditingController(text: loginController.text);
     showDialog(
       context: context,
-      builder: (context) =>
-          _ResetPasswordDialog(controller: resetEmailController),
+      builder: (context) => _ResetPasswordDialog(controller: resetEmailController),
     );
   }
 
@@ -524,13 +414,13 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Gunakan email atau username serta password Anda.',
+                'Gunakan email dan password Anda.',
                 style: TextStyle(color: muted, fontSize: 12),
               ),
               const SizedBox(height: 28),
               InputField(
-                label: 'Email atau Username',
-                hint: 'nama@sekolah.sch.id atau username',
+                label: 'Email',
+                hint: 'nama@sekolah.sch.id',
                 controller: loginController,
               ),
               const SizedBox(height: 18),
@@ -543,10 +433,7 @@ class _LoginPageState extends State<LoginPage> {
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
+                  child: Text(error!, style: const TextStyle(color: Colors.red)),
                 ),
               const SizedBox(height: 14),
               Row(
@@ -564,18 +451,7 @@ class _LoginPageState extends State<LoginPage> {
                 onPressed: loading ? null : login,
                 loading: loading,
               ),
-              const SizedBox(height: 22),
-              Center(
-                child: TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const RegisterPage()),
-                  ),
-                  child: const Text(
-                    'Belum punya akun siswa?  Daftar sekarang ->',
-                  ),
-                ),
-              ),
+
             ],
           ),
         ),
@@ -605,18 +481,11 @@ class _RegisterPageState extends State<RegisterPage> {
       setState(() => error = 'Masukkan alamat email yang valid.');
       return;
     }
-    setState(() {
-      loading = true;
-      error = null;
-    });
+    setState(() { loading = true; error = null; });
     try {
       final attendance = int.tryParse(attendanceController.text.trim());
-      if (nameController.text.trim().isEmpty ||
-          attendance == null ||
-          attendance <= 0) {
-        throw const AuthException(
-          'Nama lengkap dan nomor absen wajib diisi dengan benar.',
-        );
+      if (nameController.text.trim().isEmpty || attendance == null || attendance <= 0) {
+        throw const AuthException('Nama lengkap dan nomor absen wajib diisi dengan benar.');
       }
       await AuthService(supabase).registerStudent(
         fullName: nameController.text,
@@ -626,9 +495,7 @@ class _RegisterPageState extends State<RegisterPage> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Akun dibuat. Silakan login dengan password absen x3.'),
-        ),
+        const SnackBar(content: Text('Akun dibuat. Silakan login dengan password absen x3.')),
       );
       Navigator.pop(context);
     } on AuthException catch (exception) {
@@ -683,11 +550,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 controller: nameController,
               ),
               const SizedBox(height: 16),
-              InputField(
-                label: 'Email pribadi',
-                hint: 'nama@gmail.com',
-                controller: emailController,
-              ),
+              InputField(label: 'Email pribadi', hint: 'nama@gmail.com', controller: emailController),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -700,11 +563,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                   const SizedBox(width: 14),
                   Expanded(
-                    child: InputField(
-                      label: 'Nomor absen',
-                      hint: 'Absen Anda',
-                      controller: attendanceController,
-                    ),
+                    child: InputField(label: 'Nomor absen', hint: 'Absen Anda', controller: attendanceController),
                   ),
                 ],
               ),
@@ -722,8 +581,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
               ),
               const SizedBox(height: 22),
-              if (error != null)
-                Text(error!, style: const TextStyle(color: Colors.red)),
+              if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
               ActionButton(
                 label: 'Daftar akun siswa',
                 onPressed: loading ? null : register,
@@ -794,37 +652,24 @@ class _InputFieldState extends State<InputField> {
       TextField(
         controller: widget.controller,
         obscureText: widget.password && obscured,
-        keyboardType: widget.password
-            ? TextInputType.visiblePassword
-            : TextInputType.text,
+        keyboardType: widget.password ? TextInputType.visiblePassword : TextInputType.text,
         textInputAction: TextInputAction.next,
         autocorrect: false,
         enableSuggestions: !widget.password,
         autofillHints: widget.password ? const [AutofillHints.password] : null,
         decoration: InputDecoration(
           hintText: widget.hint,
-          hintStyle: const TextStyle(
-            color: TalogColors.textMuted,
-            fontSize: 13,
-          ),
+          hintStyle: const TextStyle(color: TalogColors.textMuted, fontSize: 13),
           suffixIcon: widget.password
               ? IconButton(
-                  tooltip: obscured
-                      ? 'Tampilkan password'
-                      : 'Sembunyikan password',
-                  icon: Icon(
-                    obscured ? Icons.visibility : Icons.visibility_off,
-                    color: TalogColors.textMuted,
-                  ),
+                  tooltip: obscured ? 'Tampilkan password' : 'Sembunyikan password',
+                  icon: Icon(obscured ? Icons.visibility : Icons.visibility_off, color: TalogColors.textMuted),
                   onPressed: () => setState(() => obscured = !obscured),
                 )
               : null,
           filled: true,
           fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 15,
-          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: TalogColors.border),
@@ -835,10 +680,7 @@ class _InputFieldState extends State<InputField> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(
-              color: TalogColors.primaryNavy,
-              width: 1.5,
-            ),
+            borderSide: const BorderSide(color: TalogColors.primaryNavy, width: 1.5),
           ),
         ),
       ),
@@ -847,12 +689,7 @@ class _InputFieldState extends State<InputField> {
 }
 
 class ActionButton extends StatelessWidget {
-  const ActionButton({
-    super.key,
-    required this.label,
-    required this.onPressed,
-    this.loading = false,
-  });
+  const ActionButton({super.key, required this.label, required this.onPressed, this.loading = false});
   final String label;
   final VoidCallback? onPressed;
   final bool loading;
@@ -872,18 +709,11 @@ class ActionButton extends StatelessWidget {
           ? const SizedBox(
               width: 20,
               height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
             )
           : Text(
               '$label  ->',
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-                letterSpacing: 0.2,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, letterSpacing: 0.2),
             ),
     ),
   );
@@ -891,11 +721,7 @@ class ActionButton extends StatelessWidget {
 
 // Student Page with Modern UI, Realtime Updates, Submissions, Grades, and Profile
 class StudentPage extends StatefulWidget {
-  const StudentPage({
-    super.key,
-    required this.profile,
-    this.isStaffPreview = false,
-  });
+  const StudentPage({super.key, required this.profile, this.isStaffPreview = false});
   final UserProfile profile;
   final bool isStaffPreview;
 
@@ -913,9 +739,9 @@ class _StudentPageState extends State<StudentPage> {
   void initState() {
     super.initState();
     _profile = widget.profile;
-    _greeting = getRealtimeGreeting(username: _profile.displayName);
+    _greeting = getRealtimeGreeting();
     _timeTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      final newGreeting = getRealtimeGreeting(username: _profile.displayName);
+      final newGreeting = getRealtimeGreeting();
       if (newGreeting != _greeting && mounted) {
         setState(() => _greeting = newGreeting);
       }
@@ -932,98 +758,12 @@ class _StudentPageState extends State<StudentPage> {
     final noteController = TextEditingController();
     String? selectedFilePath;
     String? selectedFileName;
-    int? selectedFileSize;
-    String? selectedMimeType;
-    String? uploadError;
     var sending = false;
-    var uploading = false;
-
+    final answerTextController = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
-          Future<void> pickAndUploadFile() async {
-            debugPrint('UPLOAD CLICKED');
-            try {
-              final result = await FilePicker.platform.pickFiles(
-                withData: true,
-                type: FileType.any,
-              );
-              final file = result?.files.single;
-              if (file == null) {
-                debugPrint('FILE PICKED: no file selected');
-                return;
-              }
-
-              debugPrint('FILE PICKED: ${file.name}');
-
-              final fileValidation = DashboardService.validateSubmissionFile(
-                fileName: file.name,
-                fileSize: file.size,
-              );
-              if (fileValidation != null) {
-                debugPrint('UPLOAD VALIDATION FAILED: $fileValidation');
-                setDialogState(() {
-                  uploadError = fileValidation;
-                  selectedFilePath = null;
-                  selectedFileName = null;
-                  selectedFileSize = null;
-                  selectedMimeType = null;
-                });
-                return;
-              }
-
-              setDialogState(() {
-                uploading = true;
-                uploadError = null;
-                selectedFileName = file.name;
-                selectedFileSize = file.size;
-                selectedMimeType = DashboardService.detectMimeType(
-                  filePath: file.path ?? file.name,
-                  fileName: file.name,
-                );
-              });
-
-              debugPrint('UPLOAD FUNCTION CALLED');
-              final path = await DashboardService(supabase)
-                  .uploadSubmissionFile(
-                    assignmentId: todo['id'].toString(),
-                    studentId: _profile.id,
-                    fileName: file.name,
-                    bytes: file.bytes ?? Uint8List(0),
-                    contentType: selectedMimeType,
-                    filePath: file.path ?? file.name,
-                  );
-              if (!ctx.mounted) {
-                debugPrint('UPLOAD CONTEXT UNMOUNTED AFTER SUCCESS');
-                return;
-              }
-              debugPrint('UPLOAD SUCCESS');
-              setDialogState(() {
-                selectedFilePath = path;
-                uploading = false;
-                uploadError = null;
-              });
-            } catch (error, stackTrace) {
-              debugPrint('UPLOAD ERROR: $error');
-              debugPrint('UPLOAD STACKTRACE: $stackTrace');
-              if (ctx.mounted) {
-                setDialogState(() {
-                  uploading = false;
-                  uploadError = error.toString().replaceAll('Exception: ', '');
-                  selectedFilePath = null;
-                  selectedFileName = selectedFileName;
-                });
-              }
-            }
-          }
-
-          final canSubmit =
-              !sending &&
-              !uploading &&
-              ((selectedFilePath != null && selectedFilePath!.isNotEmpty) ||
-                  noteController.text.trim().isNotEmpty);
-
           return AlertDialog(
             title: Text(todo['name']?.toString() ?? 'Detail tugas'),
             content: SingleChildScrollView(
@@ -1031,163 +771,100 @@ class _StudentPageState extends State<StudentPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    todo['description']?.toString() ?? 'Tidak ada deskripsi.',
-                    style: const TextStyle(color: muted, height: 1.4),
-                  ),
+                  Text(todo['description']?.toString() ?? 'Tidak ada deskripsi.', style: const TextStyle(color: muted, height: 1.4)),
                   const SizedBox(height: 10),
-                  Text(
-                    'Deadline: ${_readableDate(todo['due_at'])}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Text('Deadline: ${_readableDate(todo['due_at'])}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Pilih salah satu atau gabungkan jawaban teks dan file.',
-                    style: TextStyle(fontSize: 13, color: muted),
-                  ),
+                  const Text('Lampirkan file tugas dan tambahkan catatan untuk guru:', style: TextStyle(fontSize: 13, color: muted)),
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
-                    onPressed: sending || uploading ? null : pickAndUploadFile,
+                    onPressed: sending
+                        ? null
+                        : () async {
+                            final result = await FilePicker.platform.pickFiles(withData: true);
+                            final file = result?.files.single;
+                            if (file == null || file.bytes == null) return;
+                            try {
+                              final path = await DashboardService(supabase).uploadSubmissionFile(
+                                assignmentId: todo['id'].toString(),
+                                studentId: widget.profile.id,
+                                fileName: file.name,
+                                bytes: file.bytes!,
+                              );
+                              if (ctx.mounted) {
+                                setDialogState(() {
+                                  selectedFilePath = path;
+                                  selectedFileName = file.name;
+                                });
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Gagal mengunggah file: $e')),
+                                );
+                              }
+                            }
+                          },
                     icon: const Icon(Icons.attach_file),
                     label: Text(selectedFileName ?? 'Pilih file tugas'),
                   ),
-                  if (selectedFileName != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'Nama file: $selectedFileName',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black87,
-                      ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: answerTextController,
+                    enabled: !sending,
+                    decoration: const InputDecoration(
+                      labelText: 'Jawaban teks (opsional)',
+                      hintText: 'Tulis jawaban Anda di sini...',
+                      border: OutlineInputBorder(),
                     ),
-                    if (selectedFileSize != null)
-                      Text(
-                        'Ukuran: ${selectedFileSize! ~/ 1024} KB',
-                        style: const TextStyle(fontSize: 11, color: muted),
-                      ),
-                    if (selectedFilePath != null &&
-                        selectedFilePath!.isNotEmpty)
-                      Text(
-                        'Status upload: Berhasil diunggah',
-                        style: const TextStyle(
-                          color: Colors.green,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                  ],
-                  if (uploading) ...[
-                    const SizedBox(height: 8),
-                    const Row(
-                      children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          'Mengunggah file...',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ],
-                  if (uploadError != null && uploadError!.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      uploadError!,
-                      style: const TextStyle(color: Colors.red, fontSize: 11),
-                    ),
-                  ],
+                    maxLines: 5,
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: noteController,
-                    enabled: !sending && !uploading,
+                    enabled: !sending,
                     decoration: const InputDecoration(
-                      labelText: 'Jawaban teks (opsional)',
+                      labelText: 'Catatan tambahan (opsional)',
                       border: OutlineInputBorder(),
                     ),
-                    maxLines: 4,
+                    maxLines: 2,
                   ),
                 ],
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: sending || uploading
-                    ? null
-                    : () => Navigator.pop(ctx),
-                child: const Text('Batal'),
-              ),
+              TextButton(onPressed: sending ? null : () => Navigator.pop(ctx), child: const Text('Batal')),
               FilledButton.icon(
-                onPressed: sending || uploading || !canSubmit
+                onPressed: sending
                     ? null
                     : () async {
-                        final hasText = noteController.text.trim().isNotEmpty;
-                        final hasFile =
-                            selectedFilePath != null &&
-                            selectedFilePath!.isNotEmpty;
-                        if (!hasText && !hasFile) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Tambahkan jawaban teks atau pilih file tugas terlebih dahulu.',
-                              ),
-                            ),
-                          );
+                        if (selectedFilePath == null && noteController.text.trim().isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tambahkan catatan atau pilih file tugas terlebih dahulu.')));
                           return;
                         }
                         setDialogState(() => sending = true);
                         try {
                           await DashboardService(supabase).submitAssignment(
                             todoId: todo['id'].toString(),
-                            filePath: selectedFilePath,
-                            fileName: selectedFileName,
-                            fileSize: selectedFileSize,
-                            mimeType: selectedMimeType,
-                            submissionType: hasText && hasFile
-                                ? 'text_and_file'
-                                : hasFile
-                                ? 'file'
-                                : 'text',
-                            contentText: hasText
-                                ? noteController.text.trim()
-                                : null,
+                            filePath: selectedFilePath?.isNotEmpty == true ? selectedFilePath : null,
+                            contentText: answerTextController.text.trim().isNotEmpty
+                                ? answerTextController.text.trim()
+                                : (noteController.text.trim().isNotEmpty
+                                    ? noteController.text.trim()
+                                    : null),
                           );
                           if (!ctx.mounted) return;
                           Navigator.pop(ctx);
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Tugas berhasil dikumpulkan!'),
-                              ),
-                            );
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tugas berhasil dikumpulkan!')));
                             setState(() {});
                           }
                         } catch (e) {
-                          if (ctx.mounted) {
-                            setDialogState(() => sending = false);
-                          }
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Gagal mengumpulkan tugas: $e'),
-                              ),
-                            );
-                          }
+                          if (ctx.mounted) setDialogState(() => sending = false);
+                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal mengumpulkan tugas: $e')));
                         }
                       },
-                icon: sending
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.send),
+                icon: sending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
                 label: Text(sending ? 'Mengirim...' : 'Kirim Tugas'),
               ),
             ],
@@ -1205,55 +882,34 @@ class _StudentPageState extends State<StudentPage> {
         content: FutureBuilder<List<Map<String, dynamic>>>(
           future: DashboardService(supabase).fetchMySubmissions(),
           builder: (context, snapshot) {
-            final submission = snapshot.data
-                ?.cast<Map<String, dynamic>>()
-                .where(
-                  (item) =>
-                      item['todo_id']?.toString() == todo['id']?.toString(),
-                )
-                .firstOrNull;
+            final submission = snapshot.data?.cast<Map<String, dynamic>>().where(
+              (item) => item['todo_id']?.toString() == todo['id']?.toString(),
+            ).firstOrNull;
             final grade = _gradeMap(submission?['grades']);
             final score = grade?['score']?.toString();
             final feedback = grade?['feedback']?.toString();
-            final attachment =
-                todo['attachment_url'] ??
-                todo['attachment'] ??
-                todo['file_url'];
+            final attachment = todo['attachment_url'] ?? todo['attachment'] ?? todo['file_url'];
             return SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    todo['description']?.toString() ?? 'Tidak ada deskripsi.',
-                    style: const TextStyle(color: muted, height: 1.4),
-                  ),
+                  Text(todo['description']?.toString() ?? 'Tidak ada deskripsi.', style: const TextStyle(color: muted, height: 1.4)),
                   const SizedBox(height: 12),
-                  Text(
-                    'Deadline: ${_readableDate(todo['due_at'])}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  Text('Deadline: ${_readableDate(todo['due_at'])}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   if (todo['departments'] is Map) ...[
                     const SizedBox(height: 6),
-                    Text(
-                      'Jurusan: ${(todo['departments'] as Map)['name'] ?? '-'}',
-                    ),
+                    Text('Jurusan: ${(todo['departments'] as Map)['name'] ?? '-'}'),
                   ],
-                  if (attachment != null &&
-                      attachment.toString().trim().isNotEmpty) ...[
+                  if (attachment != null && attachment.toString().trim().isNotEmpty) ...[
                     const SizedBox(height: 6),
                     SelectableText('Lampiran: $attachment'),
                   ],
                   const SizedBox(height: 12),
-                  Text(
-                    'Status: ${submission == null ? 'Belum dikumpulkan' : 'Sudah dikumpulkan'}',
-                  ),
+                  Text('Status: ${submission == null ? 'Belum dikumpulkan' : 'Sudah dikumpulkan'}'),
                   if (snapshot.hasError) ...[
                     const SizedBox(height: 6),
-                    Text(
-                      'Status submission belum dapat dimuat: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.red, fontSize: 12),
-                    ),
+                    Text('Status submission belum dapat dimuat: ${snapshot.error}', style: const TextStyle(color: Colors.red, fontSize: 12)),
                   ],
                   if (score != null) ...[
                     const SizedBox(height: 6),
@@ -1269,10 +925,7 @@ class _StudentPageState extends State<StudentPage> {
           },
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
           if (!widget.isStaffPreview)
             FilledButton.icon(
               onPressed: () {
@@ -1294,12 +947,6 @@ class _StudentPageState extends State<StudentPage> {
     return Shell(
       title: 'STUDENT WORKSPACE',
       heading: '$_greeting, $name.',
-      onProfileUpdated: (updatedProfile) {
-        setState(() {
-          _profile = updatedProfile;
-          _greeting = getRealtimeGreeting(username: updatedProfile.displayName);
-        });
-      },
       subtitle: widget.isStaffPreview
           ? '[Staff Preview Mode] Melihat tampilan sebagai siswa.'
           : 'Semua tugas, progres, dan nilai Anda dalam satu ruang kerja.',
@@ -1322,7 +969,7 @@ class _StudentPageState extends State<StudentPage> {
               ),
             ),
           ),
-        if (currentTab == 0 && !widget.isStaffPreview)
+          if (currentTab == 0 && !widget.isStaffPreview)
           Container(
             padding: const EdgeInsets.all(12),
             margin: const EdgeInsets.only(bottom: 16),
@@ -1362,12 +1009,7 @@ class _StudentPageState extends State<StudentPage> {
           StudentProfilePanel(
             profile: _profile,
             onProfileUpdated: (updatedProfile) {
-              setState(() {
-                _profile = updatedProfile;
-                _greeting = getRealtimeGreeting(
-                  username: updatedProfile.displayName,
-                );
-              });
+              setState(() => _profile = updatedProfile);
             },
           ),
       ],
@@ -1394,9 +1036,7 @@ class _StudentProfilePanelState extends State<StudentProfilePanel> {
   @override
   void initState() {
     super.initState();
-    usernameController = TextEditingController(
-      text: widget.profile.username ?? '',
-    );
+    usernameController = TextEditingController(text: widget.profile.username ?? '');
   }
 
   @override
@@ -1410,17 +1050,16 @@ class _StudentProfilePanelState extends State<StudentProfilePanel> {
     final validation = AuthService.validateUsername(username);
     if (validation != null) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(validation)));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(validation)));
       }
       return;
     }
 
     try {
-      await AuthService(
-        supabase,
-      ).updateProfile(userId: widget.profile.id, username: username);
+      await AuthService(supabase).updateProfile(
+        userId: widget.profile.id,
+        username: username,
+      );
       final updatedProfile = UserProfile(
         id: widget.profile.id,
         fullName: widget.profile.fullName,
@@ -1437,12 +1076,8 @@ class _StudentProfilePanelState extends State<StudentProfilePanel> {
       }
     } catch (e) {
       if (mounted) {
-        final message = e is AuthException
-            ? e.message
-            : 'Gagal memperbarui username. Silakan coba lagi.';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
+        final message = e is AuthException ? e.message : 'Gagal memperbarui username. Silakan coba lagi.';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
       }
     }
   }
@@ -1471,33 +1106,18 @@ class _StudentProfilePanelState extends State<StudentProfilePanel> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Nama lengkap: ${widget.profile.fullName}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
+              Text('Nama lengkap: ${widget.profile.fullName}', style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Text(
-                'Email: ${widget.profile.email}',
-                style: const TextStyle(color: muted),
-              ),
+              Text('Email: ${widget.profile.email}', style: const TextStyle(color: muted)),
               const SizedBox(height: 8),
-              Text(
-                'Role saat ini: ${widget.profile.role.name.toUpperCase()}',
-                style: const TextStyle(color: muted),
-              ),
+              Text('Role saat ini: ${widget.profile.role.name.toUpperCase()}', style: const TextStyle(color: muted)),
               const SizedBox(height: 8),
-              Text(
-                'Username saat ini: ${widget.profile.username ?? '-'}',
-                style: const TextStyle(color: muted),
-              ),
+              Text('Username saat ini: ${widget.profile.username ?? '-'}', style: const TextStyle(color: muted)),
             ],
           ),
         ),
         const SizedBox(height: 20),
-        const Text(
-          'Ganti Username',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
+        const Text('Ganti Username', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -1519,12 +1139,7 @@ class _StudentProfilePanelState extends State<StudentProfilePanel> {
         const SizedBox(height: 12),
         Row(
           children: [
-            const Expanded(
-              child: Text(
-                'Password akun',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
+            const Expanded(child: Text('Password akun', style: TextStyle(fontWeight: FontWeight.bold))),
             FilledButton.tonalIcon(
               onPressed: _showPasswordDialog,
               icon: const Icon(Icons.lock_reset),
@@ -1573,10 +1188,7 @@ class _StudentPasswordDialogState extends State<_StudentPasswordDialog> {
       return;
     }
 
-    setState(() {
-      loading = true;
-      error = null;
-    });
+    setState(() { loading = true; error = null; });
     try {
       await AuthService(supabase).changePasswordWithCurrent(
         currentPassword: currentPasswordController.text,
@@ -1591,17 +1203,11 @@ class _StudentPasswordDialogState extends State<_StudentPasswordDialog> {
       }
     } on AuthException catch (e) {
       if (mounted) {
-        setState(() {
-          error = e.message;
-          loading = false;
-        });
+        setState(() { error = e.message; loading = false; });
       }
     } catch (_) {
       if (mounted) {
-        setState(() {
-          error = 'Gagal memperbarui password. Silakan coba lagi.';
-          loading = false;
-        });
+        setState(() { error = 'Gagal memperbarui password. Silakan coba lagi.'; loading = false; });
       }
     }
   }
@@ -1619,9 +1225,7 @@ class _StudentPasswordDialogState extends State<_StudentPasswordDialog> {
             decoration: InputDecoration(
               labelText: 'Password lama',
               suffixIcon: IconButton(
-                icon: Icon(
-                  showCurrent ? Icons.visibility_off : Icons.visibility,
-                ),
+                icon: Icon(showCurrent ? Icons.visibility_off : Icons.visibility),
                 onPressed: () => setState(() => showCurrent = !showCurrent),
               ),
             ),
@@ -1645,9 +1249,7 @@ class _StudentPasswordDialogState extends State<_StudentPasswordDialog> {
             decoration: InputDecoration(
               labelText: 'Konfirmasi password baru',
               suffixIcon: IconButton(
-                icon: Icon(
-                  showConfirm ? Icons.visibility_off : Icons.visibility,
-                ),
+                icon: Icon(showConfirm ? Icons.visibility_off : Icons.visibility),
                 onPressed: () => setState(() => showConfirm = !showConfirm),
               ),
             ),
@@ -1655,23 +1257,14 @@ class _StudentPasswordDialogState extends State<_StudentPasswordDialog> {
           if (error != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                error!,
-                style: const TextStyle(color: Colors.red, fontSize: 12),
-              ),
+              child: Text(error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
             ),
         ],
       ),
     ),
     actions: [
-      TextButton(
-        onPressed: loading ? null : () => Navigator.pop(context),
-        child: const Text('Batal'),
-      ),
-      FilledButton(
-        onPressed: loading ? null : _submit,
-        child: Text(loading ? 'Memproses...' : 'Ubah Password'),
-      ),
+      TextButton(onPressed: loading ? null : () => Navigator.pop(context), child: const Text('Batal')),
+      FilledButton(onPressed: loading ? null : _submit, child: Text(loading ? 'Memproses...' : 'Ubah Password')),
     ],
   );
 }
@@ -1691,7 +1284,7 @@ class _StudentAssignmentsListState extends State<StudentAssignmentsList> {
   @override
   void initState() {
     super.initState();
-    future = DashboardService(supabase).fetchMyTaskProgress();
+    future = DashboardService(supabase).fetchTodos(activeOnly: true);
     channel = DashboardService(supabase).watchTable(
       channelName: 'student-todos-${identityHashCode(this)}',
       table: 'todos',
@@ -1701,12 +1294,8 @@ class _StudentAssignmentsListState extends State<StudentAssignmentsList> {
     );
   }
 
-  Future<void> refresh() async {
-    final nextFuture = DashboardService(supabase).fetchMyTaskProgress();
-    if (!mounted) return;
-    setState(() {
-      future = nextFuture;
-    });
+  void refresh() {
+    setState(() => future = DashboardService(supabase).fetchTodos(activeOnly: true));
   }
 
   @override
@@ -1716,42 +1305,26 @@ class _StudentAssignmentsListState extends State<StudentAssignmentsList> {
   }
 
   @override
-  Widget build(
-    BuildContext context,
-  ) => FutureBuilder<List<Map<String, dynamic>>>(
+  Widget build(BuildContext context) => FutureBuilder<List<Map<String, dynamic>>>(
     future: future,
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) {
-        return const Padding(
-          padding: EdgeInsets.all(12),
-          child: LinearProgressIndicator(),
-        );
+        return const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator());
       }
       if (snapshot.hasError) {
-        return _RefreshMessage(
-          message: 'Tugas tidak dapat dimuat: ${snapshot.error}',
-          onRefresh: refresh,
-        );
+        return _RefreshMessage(message: 'Tugas tidak dapat dimuat: ${snapshot.error}', onRefresh: refresh);
       }
       final rows = snapshot.data ?? const [];
       if (rows.isEmpty) {
-        return const Text(
-          'Belum ada tugas yang diberikan.',
-          style: TextStyle(color: muted),
-        );
+        return const Text('Belum ada tugas yang diberikan.', style: TextStyle(color: muted));
       }
       return Column(
         children: rows.map((todo) {
           final name = todo['name']?.toString() ?? 'Tugas tanpa nama';
           final desc = todo['description']?.toString() ?? '-';
-          final submission = todo['submission'] is Map
-              ? todo['submission'] as Map<String, dynamic>
-              : null;
-          final submitted = submission != null;
+          final completed = todo['is_complete'] == true;
           final department = todo['departments'];
-          final departmentName = department is Map
-              ? department['name']?.toString()
-              : null;
+          final departmentName = department is Map ? department['name']?.toString() : null;
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(14),
@@ -1766,59 +1339,23 @@ class _StudentAssignmentsListState extends State<StudentAssignmentsList> {
                 final details = Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      submitted ? Icons.check_circle : Icons.pending_actions,
-                      color: submitted ? Colors.green : violet,
-                    ),
+                    Icon(completed ? Icons.check_circle : Icons.pending_actions, color: completed ? cyan : violet),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
+                          Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                           const SizedBox(height: 4),
-                          Text(
-                            desc,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: muted, fontSize: 12),
-                          ),
+                          Text(desc, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: muted, fontSize: 12)),
                           const SizedBox(height: 8),
                           Wrap(
                             spacing: 10,
                             runSpacing: 4,
                             children: [
-                              Text(
-                                'Deadline: ${_readableDate(todo['due_at'])}',
-                                style: const TextStyle(
-                                  color: muted,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              if (departmentName != null)
-                                Text(
-                                  departmentName,
-                                  style: const TextStyle(
-                                    color: muted,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              Text(
-                                submitted ? 'Sudah dikumpulkan' : 'Aktif',
-                                style: TextStyle(
-                                  color: submitted
-                                      ? Colors.green.shade700
-                                      : violet,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                              Text('Deadline: ${_readableDate(todo['due_at'])}', style: const TextStyle(color: muted, fontSize: 11)),
+                              if (departmentName != null) Text(departmentName, style: const TextStyle(color: muted, fontSize: 11)),
+                              Text(completed ? 'Selesai' : 'Aktif', style: TextStyle(color: completed ? Colors.green.shade700 : violet, fontSize: 11, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ],
@@ -1826,27 +1363,11 @@ class _StudentAssignmentsListState extends State<StudentAssignmentsList> {
                     ),
                   ],
                 );
-                final action = FilledButton.tonal(
-                  onPressed: () => widget.onOpenTask(todo),
-                  child: const Text('Lihat Detail'),
-                );
+                final action = FilledButton.tonal(onPressed: () => widget.onOpenTask(todo), child: const Text('Lihat Detail'));
                 if (narrow) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      details,
-                      const SizedBox(height: 12),
-                      Align(alignment: Alignment.centerRight, child: action),
-                    ],
-                  );
+                  return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [details, const SizedBox(height: 12), Align(alignment: Alignment.centerRight, child: action)]);
                 }
-                return Row(
-                  children: [
-                    Expanded(child: details),
-                    const SizedBox(width: 12),
-                    action,
-                  ],
-                );
+                return Row(children: [Expanded(child: details), const SizedBox(width: 12), action]);
               },
             ),
           );
@@ -1890,12 +1411,8 @@ class _StudentGradesListState extends State<StudentGradesList> {
     ];
   }
 
-  Future<void> refresh() async {
-    final nextFuture = DashboardService(supabase).fetchMySubmissions();
-    if (!mounted) return;
-    setState(() {
-      future = nextFuture;
-    });
+  void refresh() {
+    setState(() => future = DashboardService(supabase).fetchMySubmissions());
   }
 
   @override
@@ -1907,101 +1424,100 @@ class _StudentGradesListState extends State<StudentGradesList> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      FutureBuilder<List<Map<String, dynamic>>>(
-        future: future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return _RefreshMessage(
-              message: 'Gagal memuat status pengumpulan: ${snapshot.error}',
-              onRefresh: refresh,
-            );
-          }
-          final rows = snapshot.data ?? const [];
-          if (rows.isEmpty) {
-            return const Text(
-              'Belum ada tugas yang dikumpulkan.',
-              style: TextStyle(color: muted),
-            );
-          }
-          return Column(
-            children: rows.map((sub) {
-              final todo = sub['todos'];
-              final todoName = todo is Map ? todo['name']?.toString() : 'Tugas';
-              final grades = _gradeMap(sub['grades']);
-              final score = grades?['score']?.toString();
-              final feedback = grades?['feedback']?.toString();
+  Widget build(BuildContext context) => FutureBuilder<List<Map<String, dynamic>>>(
+    future: future,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (snapshot.hasError) {
+        return _RefreshMessage(message: 'Gagal memuat status pengumpulan: ${snapshot.error}', onRefresh: refresh);
+      }
+      final rows = snapshot.data ?? const [];
+      if (rows.isEmpty) {
+        return const Text('Belum ada tugas yang dikumpulkan.', style: TextStyle(color: muted));
+      }
+      return Column(
+        children: rows.map((sub) {
+          final todo = sub['todos'];
+          final todoName = todo is Map ? todo['name']?.toString() : 'Tugas';
+          final grades = _gradeMap(sub['grades']);
+          final score = grades?['score']?.toString();
+          final feedback = grades?['feedback']?.toString();
 
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xffe7eaf1)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xffe7eaf1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            todoName ?? 'Tugas',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: score != null
-                                ? Colors.green.shade50
-                                : Colors.blue.shade50,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            score != null ? 'Nilai: $score' : 'Terkirim',
-                            style: TextStyle(
-                              color: score != null
-                                  ? Colors.green.shade800
-                                  : Colors.blue.shade800,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (feedback != null && feedback.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        'Catatan: $feedback',
-                        style: const TextStyle(color: muted, fontSize: 12),
+                    Expanded(
+                      child: Text(
+                        todoName ?? 'Tugas',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                       ),
-                    ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: score != null ? Colors.green.shade50 : Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        score != null ? 'Nilai: $score' : 'Terkirim',
+                        style: TextStyle(
+                          color: score != null ? Colors.green.shade800 : Colors.blue.shade800,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-              );
-            }).toList(),
+                if (feedback != null && feedback.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text('Catatan: $feedback', style: const TextStyle(color: muted, fontSize: 12)),
+                ],
+              ],
+            ),
           );
-        },
+        }).toList(),
       );
+    },
+  );
+}
+
+class ImportResult {
+  const ImportResult({
+    required this.rowIndex,
+    required this.name,
+    required this.email,
+    required this.success,
+    this.errorMessage,
+  });
+  final int rowIndex;
+  final String name;
+  final String email;
+  final bool success;
+  final String? errorMessage;
+}
+
+String _generatePassword() {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  final random = Random.secure();
+  return List.generate(12, (_) => chars[random.nextInt(chars.length)]).join();
 }
 
 class RoleDashboard extends StatefulWidget {
-  RoleDashboard({Key? key, required this.profile})
-      : assert(profile.id.isNotEmpty),
-        super(key: key ?? ValueKey(profile.id));
+  const RoleDashboard({super.key, required this.profile});
   final UserProfile profile;
 
   @override
@@ -2012,21 +1528,14 @@ class _RoleDashboardState extends State<RoleDashboard> {
   int currentTab = 0;
   Timer? _timeTimer;
   String _greeting = getRealtimeGreeting();
-  late UserProfile _profile;
 
   @override
   void initState() {
     super.initState();
-    _profile = widget.profile;
-    debugPrint('[ROLE TRACE] role=teacher');
-    debugPrint('[TEACHER TRACE] initState: RoleDashboard');
-    debugPrint('MOUNT RoleDashboard instance=${identityHashCode(this)}');
-    _greeting = getRealtimeGreeting(username: _profile.displayName);
+    _greeting = getRealtimeGreeting();
     _timeTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      final newGreeting = getRealtimeGreeting(username: _profile.displayName);
-      debugPrint('[TEACHER TRACE] timer-callback: RoleDashboard');
+      final newGreeting = getRealtimeGreeting();
       if (newGreeting != _greeting && mounted) {
-        debugPrint('[TEACHER TRACE] setState: RoleDashboard');
         setState(() => _greeting = newGreeting);
       }
     });
@@ -2034,92 +1543,87 @@ class _RoleDashboardState extends State<RoleDashboard> {
 
   @override
   void dispose() {
-    debugPrint('[TEACHER TRACE] dispose: RoleDashboard');
-    debugPrint(
-      'DISPOSE RoleDashboard instance=${identityHashCode(this)} currentTab=$currentTab',
-    );
     _timeTimer?.cancel();
     super.dispose();
   }
 
   UserRole get role => widget.profile.role;
 
-  bool get canManageTasks => role == UserRole.teacher || role == UserRole.admin;
-  bool get canManageUsers =>
-      role == UserRole.admin || role == UserRole.superadmin;
+  bool get canManageUsers => role == UserRole.admin || role == UserRole.superadmin;
   bool get canReadAuditLog => role == UserRole.superadmin;
   bool get canViewLiveUpdate => role == UserRole.superadmin;
-  bool get canViewSubmissions =>
-      role == UserRole.teacher ||
-      role == UserRole.admin ||
-      role == UserRole.superadmin;
+  bool get canViewSubmissions => role == UserRole.teacher;
 
-  int get liveUpdateTab => role == UserRole.superadmin ? 4 : -1;
+  int get liveUpdateTab => role == UserRole.superadmin ? 5 : -1;
+
+  int get _maxTab {
+    if (role == UserRole.superadmin) return 5; // Overview, Pengguna, Kelola Akun, AI, Audit Log, Live Update
+    if (role == UserRole.teacher) return 3;    // Overview, Tugas, Evaluasi, Rekap Nilai
+    if (role == UserRole.admin) return 3;      // Overview, Pengguna, Kelola Akun, Pengaturan AI
+    return 0;
+  }
+
+  int get _clampedTab => currentTab.clamp(0, _maxTab);
 
   String get title => switch (role) {
-    UserRole.teacher => 'ADMIN DASHBOARD',
+    UserRole.teacher => 'TEACHER DASHBOARD',
     UserRole.admin => 'ADMIN DASHBOARD',
-    UserRole.superadmin => 'ADMIN DASHBOARD',
+    UserRole.superadmin => 'SUPER ADMIN DASHBOARD',
     UserRole.student => 'STUDENT DASHBOARD',
   };
 
   @override
   Widget build(BuildContext context) {
-    final name = _profile.displayName;
-    debugPrint('[TEACHER TRACE] build: RoleDashboard');
-    debugPrint(
-      'BUILD RoleDashboard instance=${identityHashCode(this)} tab=$currentTab role=${widget.profile.role.name}',
-    );
+    final name = widget.profile.displayName;
     return Shell(
       title: title,
       heading: '$_greeting, $name.',
-      onProfileUpdated: (updatedProfile) {
-        setState(() {
-          _profile = updatedProfile;
-          _greeting = getRealtimeGreeting(username: updatedProfile.displayName);
-        });
-      },
       subtitle: switch (role) {
         UserRole.teacher => 'Ruang bimbingan, tugas, dan penilaian siswa.',
-        UserRole.admin => 'Kelola operasional data, tugas, dan audit TALog20.',
-        UserRole.superadmin =>
-          'Kendali penuh sistem, manajemen akun pengguna, dan audit integritas.',
+        UserRole.admin => 'Kelola pengguna, audit aktivitas, dan konfigurasi sistem.',
+        UserRole.superadmin => 'Kendali penuh sistem, manajemen akun pengguna, dan audit integritas.',
         UserRole.student => 'Ruang kerja tugas Anda.',
       },
-      profile: _profile,
+      profile: widget.profile,
       onNavSelected: (i) {
         setState(() => currentTab = i);
       },
-      selectedTabIndex: currentTab,
-      children: [_buildContentForTab(currentTab)],
+      selectedTabIndex: _clampedTab,
+      children: [
+        _buildContentForTab(currentTab),
+      ],
     );
   }
 
   Widget _buildContentForTab(int tab) {
-    if (tab == 0) {
+    if (tab == 0) return _buildOverview();
+
+    if (role == UserRole.superadmin) {
+      if (tab == 1) return const UserManagementPanel();
+      if (tab == 2) return const AccountManagementPanel();
+      if (tab == 3) return const AiSettingsPanel();
+      if (tab == 4) return const AuditLogsPanel();
+      if (tab == 5) return const LiveUpdatePage();
       return _buildOverview();
     }
-    if (tab == 1 && canManageTasks) {
-      return StaffTasksPanel(profile: _profile);
+
+    if (role == UserRole.teacher) {
+      if (tab == 1) return StaffTasksPanel(profile: widget.profile);
+      if (tab == 2) return StaffSubmissionsPanel(profile: widget.profile);
+      if (tab == 3) return const GradeRecapPanel();
+      return _buildOverview();
     }
-    if (tab == 1 && canManageUsers) {
-      return const UserManagementPanel();
+
+    // Admin: hanya Overview, Pengguna, Kelola Akun, AI, Audit Log, Live Update
+    if (role == UserRole.admin) {
+      if (tab == 1) return const UserManagementPanel();
+      if (tab == 2) return const AccountManagementPanel();
+      if (tab == 3) return const AiSettingsPanel();
+      if (tab == 4) return const AuditLogsPanel();
+      if (tab == 5) return const LiveUpdatePage();
+      return _buildOverview();
     }
-    if (tab == 2 && role == UserRole.teacher) {
-      return StaffSubmissionsPanel(profile: _profile);
-    }
-    if (tab == 2 && role == UserRole.admin) {
-      return StaffSubmissionsPanel(profile: _profile);
-    }
-    if (tab == 1 && role == UserRole.superadmin) {
-      return const UserManagementPanel();
-    }
-    if (tab == 2 && canReadAuditLog) {
-      return const AuditLogsPanel();
-    }
-    if (tab == 3 && role == UserRole.admin) {
-      return const UserManagementPanel();
-    }
+
     return _buildOverview();
   }
 
@@ -2130,17 +1634,22 @@ class _RoleDashboardState extends State<RoleDashboard> {
         title: 'STATUS SISTEM',
         heading: role == UserRole.superadmin
             ? 'Kendali Penuh Sistem'
-            : 'Ringkasan Aktivitas',
+            : role == UserRole.admin
+                ? 'Admin — Ringkasan Sistem'
+                : 'Ringkasan Aktivitas',
         child: Text(
           role == UserRole.superadmin
               ? 'Anda memiliki hak istimewa untuk mengelola role pengguna, memantau tugas, pengumpulan, penilaian, serta jejak audit sistem.'
               : role == UserRole.admin
-              ? 'Pantau seluruh operasional tugas, pengumpulan, siswa, dan audit sistem.'
-              : 'Kelola penugasan kelas Anda, evaluasi pengumpulan siswa, dan berikan nilai secara real-time.',
+                  ? 'Kelola pengguna, audit aktivitas, konfigurasi penilaian AI, dan pantau aktivitas Supabase realtime.'
+                  : 'Kelola penugasan kelas Anda, evaluasi pengumpulan siswa, dan berikan nilai secara real-time.',
           style: const TextStyle(color: muted, height: 1.5),
         ),
       ),
-      const SizedBox(height: 18),
+      if (role == UserRole.superadmin || role == UserRole.admin) ...[
+        const SizedBox(height: 18),
+        const _AppHealthPanel(),
+      ],
       const SizedBox(height: 4),
     ],
   );
@@ -2161,7 +1670,7 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
   @override
   void initState() {
     super.initState();
-    refresh();
+    future = DashboardService(supabase).fetchTodos();
     channel = DashboardService(supabase).watchTable(
       channelName: 'staff-todos-${identityHashCode(this)}',
       table: 'todos',
@@ -2178,27 +1687,17 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
   }
 
   void refresh() {
-    if (!mounted) return;
-    final nextFuture = DashboardService(supabase).fetchTodos();
-    if (!mounted) return;
-    setState(() {
-      future = nextFuture;
-    });
+    setState(() => future = DashboardService(supabase).fetchTodos());
   }
 
-  Future<void> _toggleTaskArchive(
-    Map<String, dynamic> task, {
-    required bool archived,
-  }) async {
+  Future<void> _toggleTaskArchive(Map<String, dynamic> task, {required bool archived}) async {
     final todoId = task['id']?.toString();
     if (todoId == null || todoId.isEmpty) return;
     try {
       await DashboardService(supabase).archiveTodo(todoId, archived: archived);
       await AuthService(supabase).logAudit(
         action: archived ? 'TASK_ARCHIVED' : 'TASK_RESTORED',
-        description: archived
-            ? 'Tugas diarsipkan: ${task['name']}'
-            : 'Tugas dipulihkan: ${task['name']}',
+        description: archived ? 'Tugas diarsipkan: ${task['name']}' : 'Tugas dipulihkan: ${task['name']}',
         targetRecordId: todoId,
       );
       if (mounted) refresh();
@@ -2221,21 +1720,38 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
       final submissionCount = usage['submissions'] ?? 0;
       final gradeCount = usage['grades'] ?? 0;
 
+      if (DashboardService.shouldPreferArchiveBeforeDelete(submissionCount, gradeCount: gradeCount)) {
+        if (!mounted) return;
+        final preference = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Tugas sudah memiliki data siswa'),
+            content: Text(
+              'Tugas "$taskName" sudah memiliki $submissionCount pengumpulan dan $gradeCount penilaian. Untuk menjaga integritas data, lebih aman untuk mengarsipkan tugas daripada menghapus permanen.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+              FilledButton.tonal(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Arsipkan'),
+              ),
+            ],
+          ),
+        );
+        if (preference == true) {
+          await _toggleTaskArchive(task, archived: true);
+        }
+        return;
+      }
+
       if (!mounted) return;
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Hapus tugas permanen?'),
-          content: Text(
-            submissionCount > 0 || gradeCount > 0
-                ? 'Tugas "$taskName" sudah memiliki $submissionCount pengumpulan dan $gradeCount penilaian. Menghapus permanen akan menghapus data terkait. Lanjutkan?'
-                : 'Apakah Anda yakin ingin menghapus tugas "$taskName" secara permanen? Tindakan ini tidak dapat dibatalkan.',
-          ),
+          content: Text('Apakah Anda yakin ingin menghapus tugas "$taskName" secara permanen? Tindakan ini tidak dapat dibatalkan.'),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Batal'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: Colors.red),
               onPressed: () => Navigator.pop(ctx, true),
@@ -2256,7 +1772,7 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal menghapus tugas permanen: $e')),
+          SnackBar(content: Text('Gagal memproses tugas: $e')),
         );
       }
     }
@@ -2265,130 +1781,142 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
   Future<void> _showCreateTaskDialog() async {
     late final List<Map<String, dynamic>> departments;
     try {
-      final allDepartments = await DashboardService(
-        supabase,
-      ).fetchDepartments();
-      departments = DashboardService.filterTeacherTaskDepartments(
-        allDepartments,
-      );
+      departments = await DashboardService(supabase).fetchDepartments();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Gagal memuat jurusan: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memuat jurusan: $e')),
+        );
       }
       return;
     }
     if (!mounted) return;
     final nameController = TextEditingController();
     final descController = TextEditingController();
-    String? selectedDepartmentId = departments.isEmpty
-        ? null
-        : departments.first['id']?.toString();
+    String? selectedDepartmentId = departments.isEmpty ? null : departments.first['id']?.toString();
     DateTime? dueAt;
-    showDialog(
+    String submissionFormat = 'essai'; // 'file' atau 'essai'
+    final List<TextEditingController> criteriaControllers = [TextEditingController()];
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           title: const Text('Buat Tugas Baru'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Nama Tugas'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: descController,
-                decoration: const InputDecoration(
-                  labelText: 'Deskripsi / Instruksi',
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Nama Tugas'),
                 ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: selectedDepartmentId,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Jurusan'),
-                items: departments.map((department) {
-                  final id = department['id']?.toString();
-                  final code = department['code']?.toString() ?? '';
-                  final name = department['name']?.toString() ?? code;
-                  return DropdownMenuItem(
-                    value: id,
-                    child: Text('$code - $name'),
-                  );
-                }).toList(),
-                onChanged: departments.isEmpty
-                    ? null
-                    : (value) =>
-                          setDialogState(() => selectedDepartmentId = value),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () async {
-                    final selected = await showDatePicker(
-                      context: ctx,
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 3650)),
-                      initialDate: dueAt ?? DateTime.now(),
-                    );
-                    if (selected != null) {
-                      setDialogState(() => dueAt = selected);
-                    }
-                  },
-                  icon: const Icon(Icons.event),
-                  label: Text(
-                    dueAt == null
-                        ? 'Pilih Deadline'
-                        : 'Deadline: ${_readableDate(dueAt)}',
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descController,
+                  decoration: const InputDecoration(labelText: 'Deskripsi / Instruksi'),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedDepartmentId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Jurusan'),
+                  items: departments.map((department) {
+                    final id = department['id']?.toString();
+                    final code = department['code']?.toString() ?? '';
+                    final name = department['name']?.toString() ?? code;
+                    return DropdownMenuItem(value: id, child: Text('$code - $name'));
+                  }).toList(),
+                  onChanged: departments.isEmpty ? null : (value) => setDialogState(() => selectedDepartmentId = value),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  key: ValueKey(submissionFormat),
+                  initialValue: submissionFormat,
+                  decoration: const InputDecoration(labelText: 'Format Pengumpulan', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'essai', child: Text('Esai (Teks)')),
+                    DropdownMenuItem(value: 'file', child: Text('File (Upload)')),
+                  ],
+                  onChanged: (v) => setDialogState(() => submissionFormat = v ?? 'essai'),
+                ),
+                if (submissionFormat == 'file') ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Kriteria Penilaian AI:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      TextButton.icon(
+                        icon: const Icon(Icons.add, size: 16),
+                        label: const Text('Tambah'),
+                        onPressed: () => setDialogState(() => criteriaControllers.add(TextEditingController())),
+                      ),
+                    ],
+                  ),
+                  const Text('Masukkan aspek/kata kunci yang harus ada dalam file siswa:', style: TextStyle(color: muted, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  ...criteriaControllers.asMap().entries.map((entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        SizedBox(width: 24, child: Text('${entry.key + 1}.', style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: entry.value,
+                            decoration: const InputDecoration(
+                              hintText: 'Contoh: pengertian, tujuan, kesimpulan...',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                          ),
+                        ),
+                        if (criteriaControllers.length > 1)
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline, color: Colors.red, size: 18),
+                            onPressed: () => setDialogState(() { criteriaControllers.removeAt(entry.key); }),
+                          ),
+                      ],
+                    ),
+                  )),
+                ],
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      final selected = await showDatePicker(
+                        context: ctx,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 3650)),
+                        initialDate: dueAt ?? DateTime.now(),
+                      );
+                      if (selected != null) {
+                        setDialogState(() => dueAt = selected);
+                      }
+                    },
+                    icon: const Icon(Icons.event),
+                    label: Text(dueAt == null ? 'Pilih Deadline' : 'Deadline: ${_readableDate(dueAt)}'),
                   ),
                 ),
-              ),
-              if (departments.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Belum ada jurusan di database.',
-                    style: TextStyle(color: Colors.red, fontSize: 12),
+                if (departments.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text('Belum ada jurusan di database.', style: TextStyle(color: Colors.red, fontSize: 12)),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Batal'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
             FilledButton(
               onPressed: selectedDepartmentId == null
                   ? null
-                  : () async {
+                  : () {
                       final name = nameController.text.trim();
                       if (name.isEmpty) return;
-                      Navigator.pop(ctx);
-                      try {
-                        await DashboardService(supabase).createTodo(
-                          name: name,
-                          description: descController.text.trim(),
-                          departmentId: selectedDepartmentId!,
-                          dueAt: dueAt,
-                        );
-                        await AuthService(supabase).logAudit(
-                          action: 'TASK_CREATED',
-                          description: 'Tugas baru dibuat: $name',
-                        );
-                        if (mounted) refresh();
-                      } catch (e) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Gagal membuat tugas: $e')),
-                          );
-                        }
-                      }
+                      Navigator.pop(ctx, true);
                     },
               child: const Text('Simpan'),
             ),
@@ -2396,6 +1924,276 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
         ),
       ),
     );
+
+    if (confirmed != true || !mounted) {
+      for (final c in criteriaControllers) { c.dispose(); }
+      return;
+    }
+
+    final taskName = nameController.text.trim();
+    if (taskName.isEmpty || selectedDepartmentId == null) {
+      for (final c in criteriaControllers) { c.dispose(); }
+      return;
+    }
+    final criteria = submissionFormat == 'file'
+        ? criteriaControllers.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList()
+        : <String>[];
+
+    for (final c in criteriaControllers) { c.dispose(); }
+
+    try {
+      await DashboardService(supabase).createTodo(
+        name: taskName,
+        description: descController.text.trim(),
+        departmentId: selectedDepartmentId!,
+        dueAt: dueAt,
+        submissionFormat: submissionFormat,
+        aiCriteria: criteria.isEmpty ? null : criteria,
+      );
+      await AuthService(supabase).logAudit(
+        action: 'TASK_CREATED',
+        description: 'Tugas baru dibuat: $taskName',
+      );
+      if (mounted) refresh();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuat tugas: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showAnswerKeyDialog(Map<String, dynamic> task) async {
+    final todoId = task['id']?.toString() ?? '';
+    if (todoId.isEmpty) return;
+
+    Map<String, dynamic>? existing;
+    try {
+      existing = await DashboardService(supabase).fetchAnswerKey(todoId);
+    } catch (_) {}
+    if (!mounted) return;
+
+    String selectedType = existing?['question_type']?.toString() ?? 'multiple_choice';
+    final rubricController = TextEditingController(
+        text: existing?['rubric']?.toString() ?? '');
+    double maxScore =
+        (existing?['max_score'] as num?)?.toDouble() ?? 100.0;
+
+    final Map<String, TextEditingController> answerControllers = {};
+    final existingKeys = existing?['answer_key'];
+    if (existingKeys is Map) {
+      for (final entry in existingKeys.entries) {
+        answerControllers[entry.key.toString()] =
+            TextEditingController(text: entry.value?.toString() ?? '');
+      }
+    }
+    if (answerControllers.isEmpty) {
+      for (int i = 1; i <= 5; i++) {
+        answerControllers[i.toString()] = TextEditingController();
+      }
+    }
+
+    bool saving = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Kunci Jawaban: ${task['name'] ?? 'Tugas'}'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Tipe Soal',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedType,
+                    decoration: const InputDecoration(
+                        border: OutlineInputBorder(), isDense: true),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'multiple_choice',
+                          child: Text('Pilihan Ganda')),
+                      DropdownMenuItem(
+                          value: 'short_answer',
+                          child: Text('Isian Singkat')),
+                      DropdownMenuItem(
+                          value: 'essay', child: Text('Esai')),
+                    ],
+                    onChanged: (v) => setDialogState(
+                        () => selectedType = v ?? 'multiple_choice'),
+                  ),
+                  const SizedBox(height: 14),
+                  if (selectedType != 'essay') ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Kunci per Nomor',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13)),
+                        TextButton.icon(
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text('Tambah soal'),
+                          onPressed: () => setDialogState(() {
+                            final nextKey =
+                                (answerControllers.length + 1).toString();
+                            answerControllers[nextKey] =
+                                TextEditingController();
+                          }),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ...answerControllers.entries.map((entry) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 32,
+                                child: Text('${entry.key}.',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold),
+                                    textAlign: TextAlign.center),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: entry.value,
+                                  decoration: InputDecoration(
+                                    hintText:
+                                        selectedType == 'multiple_choice'
+                                            ? 'Contoh: A'
+                                            : 'Jawaban benar',
+                                    border: const OutlineInputBorder(),
+                                    isDense: true,
+                                    contentPadding:
+                                        const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 10),
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                    Icons.remove_circle_outline,
+                                    color: Colors.red,
+                                    size: 18),
+                                onPressed: () => setDialogState(
+                                    () => answerControllers
+                                        .remove(entry.key)),
+                              ),
+                            ],
+                          ),
+                        )),
+                  ],
+                  if (selectedType == 'essay') ...[
+                    const Text('Rubrik Penilaian',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: rubricController,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        hintText:
+                            'Jelaskan kriteria penilaian esai...',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      const Text('Skor Maksimal:',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 80,
+                        child: TextFormField(
+                          initialValue: maxScore.toStringAsFixed(0),
+                          keyboardType:
+                              const TextInputType.numberWithOptions(
+                                  decimal: true),
+                          decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              isDense: true),
+                          onChanged: (v) =>
+                              maxScore = double.tryParse(v) ?? maxScore,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: saving ? null : () => Navigator.pop(ctx),
+                child: const Text('Batal')),
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      setDialogState(() => saving = true);
+                      try {
+                        final keyMap = <String, dynamic>{
+                          for (final e in answerControllers.entries)
+                            if (e.value.text.trim().isNotEmpty)
+                              e.key: e.value.text.trim(),
+                        };
+                        await DashboardService(supabase).saveAnswerKey(
+                          todoId: todoId,
+                          questionType: selectedType,
+                          answerKey: keyMap,
+                          rubric: rubricController.text.trim().isNotEmpty
+                              ? rubricController.text.trim()
+                              : null,
+                          maxScore: maxScore,
+                        );
+                        await AuthService(supabase).logAudit(
+                          action: 'ANSWER_KEY_SAVED',
+                          description:
+                              'Kunci jawaban disimpan untuk tugas: ${task['name']}',
+                          targetRecordId: todoId,
+                        );
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text(
+                                    'Kunci jawaban berhasil disimpan.')),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => saving = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                                content: Text(
+                                    'Gagal menyimpan kunci jawaban: $e')),
+                          );
+                        }
+                      }
+                    },
+              child: Text(saving ? 'Menyimpan...' : 'Simpan Kunci'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    rubricController.dispose();
+    for (final c in answerControllers.values) {
+      c.dispose();
+    }
   }
 
   @override
@@ -2413,30 +2211,9 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
               label: const Text('Tambah Tugas'),
             );
             if (constraints.maxWidth < 520) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Tugas yang terdaftar dalam sistem:',
-                    style: TextStyle(color: muted),
-                  ),
-                  const SizedBox(height: 10),
-                  action,
-                ],
-              );
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [const Text('Tugas yang terdaftar dalam sistem:', style: TextStyle(color: muted)), const SizedBox(height: 10), action]);
             }
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Tugas yang terdaftar dalam sistem:',
-                    style: TextStyle(color: muted),
-                  ),
-                ),
-                action,
-              ],
-            );
+            return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Expanded(child: Text('Tugas yang terdaftar dalam sistem:', style: TextStyle(color: muted))), action]);
           },
         ),
         const SizedBox(height: 16),
@@ -2447,32 +2224,26 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
               return const LinearProgressIndicator();
             }
             if (snapshot.hasError) {
-              return _RefreshMessage(
-                message: 'Gagal memuat tugas: ${snapshot.error}',
-                onRefresh: refresh,
-              );
+              return _RefreshMessage(message: 'Gagal memuat tugas: ${snapshot.error}', onRefresh: refresh);
             }
             final list = snapshot.data ?? const [];
-            if (list.isEmpty) {
-              return const Text(
-                'Belum ada tugas.',
-                style: TextStyle(color: muted),
-              );
-            }
+            if (list.isEmpty) return const Text('Belum ada tugas.', style: TextStyle(color: muted));
             return Column(
               children: list.map((t) {
                 final isArchived = t['is_complete'] == true;
                 return ListTile(
-                  title: Text(
-                    t['name'] ?? 'Tugas',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  title: Text(t['name'] ?? 'Tugas', style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text(t['description'] ?? '-'),
                   trailing: Wrap(
                     alignment: WrapAlignment.center,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     spacing: 8,
                     children: [
+                      TextButton.icon(
+                        onPressed: () => _showAnswerKeyDialog(t).ignore(),
+                        icon: const Icon(Icons.key_outlined, size: 16),
+                        label: const Text('Kunci Jawaban'),
+                      ),
                       Text(
                         isArchived ? 'Arsip' : 'Aktif',
                         style: TextStyle(
@@ -2481,23 +2252,14 @@ class _StaffTasksPanelState extends State<StaffTasksPanel> {
                         ),
                       ),
                       TextButton.icon(
-                        onPressed: () =>
-                            _toggleTaskArchive(t, archived: !isArchived),
-                        icon: Icon(
-                          isArchived ? Icons.unarchive : Icons.archive_outlined,
-                        ),
+                        onPressed: () => _toggleTaskArchive(t, archived: !isArchived).ignore(),
+                        icon: Icon(isArchived ? Icons.unarchive : Icons.archive_outlined),
                         label: Text(isArchived ? 'Pulihkan' : 'Arsipkan'),
                       ),
                       TextButton.icon(
-                        onPressed: () => _deleteTask(t),
-                        icon: const Icon(
-                          Icons.delete_outline,
-                          color: Colors.red,
-                        ),
-                        label: const Text(
-                          'Hapus',
-                          style: TextStyle(color: Colors.red),
-                        ),
+                        onPressed: () => _deleteTask(t).ignore(),
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        label: const Text('Hapus', style: TextStyle(color: Colors.red)),
                       ),
                     ],
                   ),
@@ -2522,28 +2284,35 @@ class StaffSubmissionsPanel extends StatefulWidget {
 class _StaffSubmissionsPanelState extends State<StaffSubmissionsPanel> {
   late Future<List<Map<String, dynamic>>> future;
   late final List<RealtimeChannel> channels;
+  // Filter tugas aktif
+  List<Map<String, dynamic>> _todoList = [];
+  String? _filterTodoId;
 
   @override
   void initState() {
     super.initState();
-    refresh();
+    future = DashboardService(supabase).fetchStaffSubmissions();
     final service = DashboardService(supabase);
     channels = [
       service.watchTable(
         channelName: 'staff-submissions-${identityHashCode(this)}',
         table: 'submissions',
-        onChange: (_) {
-          if (mounted) refresh();
-        },
+        onChange: (_) { if (mounted) refresh(); },
       ),
       service.watchTable(
         channelName: 'staff-grades-${identityHashCode(this)}',
         table: 'grades',
-        onChange: (_) {
-          if (mounted) refresh();
-        },
+        onChange: (_) { if (mounted) refresh(); },
       ),
     ];
+    _loadTodos();
+  }
+
+  Future<void> _loadTodos() async {
+    try {
+      final todos = await DashboardService(supabase).fetchTodos();
+      if (mounted) setState(() => _todoList = todos);
+    } catch (_) {}
   }
 
   @override
@@ -2554,243 +2323,518 @@ class _StaffSubmissionsPanelState extends State<StaffSubmissionsPanel> {
     super.dispose();
   }
 
-  Future<void> refresh() async {
-    final nextFuture = DashboardService(supabase).fetchStaffSubmissions();
-    if (!mounted) return;
-    setState(() {
-      future = nextFuture;
-    });
+  void refresh() {
+    setState(() => future = DashboardService(supabase).fetchStaffSubmissions());
   }
 
-  Future<void> _openSubmissionFile(String? filePath) async {
-    if (filePath == null || filePath.trim().isEmpty) return;
-    final url = await DashboardService(
-      supabase,
-    ).submissionDownloadUrl(filePath);
-    if (url == null || url.trim().isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('URL unduhan file tidak tersedia.')),
-      );
-      return;
-    }
-    final launchable = Uri.tryParse(url);
-    if (launchable == null) return;
-    if (!await launchUrl(launchable, mode: LaunchMode.externalApplication)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tidak dapat membuka file yang dipilih.')),
-      );
-    }
-  }
-
-  void _showGradeDialog(Map<String, dynamic> sub) {
-    final grades = _gradeMap(sub['grades']);
-    final existingScore = grades?['score']?.toString() ?? '';
-    final existingFeedback = grades?['feedback']?.toString() ?? '';
-    final scoreController = TextEditingController(text: existingScore);
-    final feedbackController = TextEditingController(text: existingFeedback);
+  // ── Lihat lampiran / jawaban siswa ──────────────────────────────────────────
+  void _showSubmissionContent(Map<String, dynamic> sub) {
+    final todo = sub['todos'];
+    final todoName = todo is Map ? todo['name']?.toString() ?? 'Tugas' : 'Tugas';
+    final studentProfile = sub['student_profile'] as Map<String, dynamic>?;
+    final studentName = studentProfile?['full_name']?.toString() ?? 'Siswa';
+    final filePath = sub['file_path']?.toString() ?? '';
+    final fileName = sub['file_name']?.toString() ?? '';
+    final contentText = sub['content_text']?.toString() ?? '';
+    final note = sub['note']?.toString() ?? '';
 
     showDialog(
       context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          bool loadingUrl = false;
+          return AlertDialog(
+            title: Text('Hasil Pengumpulan – $studentName'),
+            content: SizedBox(
+              width: 500,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Tugas: $todoName', style: const TextStyle(color: muted, fontSize: 12)),
+                    Text('Dikirim: ${_readableDate(sub['submitted_at'])}', style: const TextStyle(color: muted, fontSize: 12)),
+                    const SizedBox(height: 14),
+                    if (contentText.isNotEmpty) ...[
+                      const Text('Jawaban / Teks Siswa:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xfff4f6fb),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xffe0e4f0)),
+                        ),
+                        child: SelectableText(contentText, style: const TextStyle(height: 1.5, fontSize: 13)),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (note.isNotEmpty) ...[
+                      const Text('Catatan Siswa:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.amber.shade200),
+                        ),
+                        child: SelectableText(note, style: const TextStyle(height: 1.5, fontSize: 13)),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (filePath.isNotEmpty) ...[
+                      const Text('Lampiran File:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xfff0f4ff),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xffc0ccee)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.attach_file, size: 16, color: ink),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(fileName.isNotEmpty ? fileName : filePath.split('/').last, style: const TextStyle(fontSize: 12, color: ink))),
+                            const SizedBox(width: 8),
+                            StatefulBuilder(
+                              builder: (ctx2, setBtn) => TextButton.icon(
+                                onPressed: loadingUrl ? null : () async {
+                                  setBtn(() => loadingUrl = true);
+                                  try {
+                                    final url = await DashboardService(supabase).submissionDownloadUrl(filePath);
+                                    if (url != null && ctx2.mounted) {
+                                      final uri = Uri.tryParse(url);
+                                      bool opened = false;
+                                      if (uri != null) {
+                                        try {
+                                          opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                        } catch (_) {
+                                          opened = false;
+                                        }
+                                      }
+                                      if (!opened && ctx2.mounted) {
+                                        // Fallback: tampilkan URL agar bisa disalin manual
+                                        ScaffoldMessenger.of(ctx2).showSnackBar(
+                                          SnackBar(
+                                            content: SelectableText('Buka URL ini di browser: $url'),
+                                            duration: const Duration(seconds: 10),
+                                          ),
+                                        );
+                                      }
+                                    } else if (ctx2.mounted) {
+                                      ScaffoldMessenger.of(ctx2).showSnackBar(
+                                        const SnackBar(content: Text('Tidak dapat membuat link unduhan.')),
+                                      );
+                                    }
+                                  } catch (_) {
+                                    if (ctx2.mounted) {
+                                      ScaffoldMessenger.of(ctx2).showSnackBar(
+                                        const SnackBar(content: Text('Gagal membuat link unduhan.')),
+                                      );
+                                    }
+                                  } finally {
+                                    if (ctx2.mounted) setBtn(() => loadingUrl = false);
+                                  }
+                                },
+                                icon: loadingUrl
+                                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.download_outlined, size: 14),
+                                label: const Text('Unduh', style: TextStyle(fontSize: 12)),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (contentText.isEmpty && note.isEmpty && filePath.isEmpty)
+                      const Text('Tidak ada isi pengumpulan.', style: TextStyle(color: muted)),
+                  ],
+                ),
+              ),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup'))],
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Penilaian manual ────────────────────────────────────────────────────────
+  Future<void> _showGradeDialog(Map<String, dynamic> sub) async {
+    final grades = _gradeMap(sub['grades']);
+    final scoreController = TextEditingController(text: grades?['score']?.toString() ?? '');
+    final feedbackController = TextEditingController(text: grades?['feedback']?.toString() ?? '');
+
+    final shouldSave = await showDialog<Map<String, String>>(
+      context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Penilaian Tugas'),
+        title: const Text('Penilaian Manual'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: scoreController,
-              decoration: const InputDecoration(labelText: 'Nilai (0 - 100)'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
+              decoration: const InputDecoration(labelText: 'Nilai (0 – 100)', border: OutlineInputBorder()),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: feedbackController,
-              decoration: const InputDecoration(
-                labelText: 'Feedback / Catatan Guru',
-              ),
-              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Feedback / Catatan Guru', border: OutlineInputBorder()),
+              maxLines: 3,
             ),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Batal'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
           FilledButton(
-            onPressed: () async {
-              final score = double.tryParse(scoreController.text.trim());
+            onPressed: () {
+              final scoreText = scoreController.text.trim();
+              final score = double.tryParse(scoreText);
               if (score == null || score < 0 || score > 100) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Nilai harus berupa angka antara 0 - 100'),
-                  ),
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Nilai harus berupa angka antara 0 – 100')),
                 );
                 return;
               }
-              Navigator.pop(ctx);
-              try {
-                await DashboardService(supabase).gradeSubmission(
-                  submissionId: sub['id'].toString(),
-                  score: score,
-                  feedback: feedbackController.text.trim(),
-                );
-                await AuthService(supabase).logAudit(
-                  action: 'GRADE_UPDATED',
-                  description:
-                      'Pemberian nilai $score pada pengumpulan ${sub['id']}',
-                  targetRecordId: sub['id'].toString(),
-                );
-                if (mounted) refresh();
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Gagal memberikan nilai: $e')),
-                  );
-                }
-              }
+              Navigator.pop(ctx, {'score': scoreText, 'feedback': feedbackController.text.trim()});
             },
             child: const Text('Simpan Nilai'),
           ),
         ],
       ),
     );
+
+    scoreController.dispose();
+    feedbackController.dispose();
+
+    if (shouldSave == null || !mounted) return;
+
+    final score = double.tryParse(shouldSave['score'] ?? '');
+    if (score == null) return;
+
+    try {
+      await DashboardService(supabase).gradeSubmission(
+        submissionId: sub['id'].toString(),
+        score: score,
+        feedback: shouldSave['feedback'],
+      );
+      await AuthService(supabase).logAudit(
+        action: 'GRADE_UPDATED',
+        description: 'Nilai $score pada pengumpulan ${sub['id']}',
+        targetRecordId: sub['id'].toString(),
+      );
+      if (mounted) refresh();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memberikan nilai: $e')),
+        );
+      }
+    }
   }
 
+  // ── Nilai massal per-tugas ──────────────────────────────────────────────────
+  Future<void> _runAutoGrade(String todoId, String taskName) async {
+    final maxScoreCtrl = TextEditingController(text: '100');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Tetapkan Nilai Default – $taskName'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Masukkan nilai default yang akan ditetapkan ke semua siswa yang sudah mengumpulkan. '
+              'Nilai yang sudah ada akan ditimpa.',
+              style: TextStyle(color: muted, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: maxScoreCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Nilai yang ditetapkan (0–100)',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Nilai Sekarang')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final defaultScore = double.tryParse(maxScoreCtrl.text.trim());
+    if (defaultScore == null || defaultScore < 0 || defaultScore > 100) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nilai tidak valid. Masukkan angka 0–100.')),
+        );
+      }
+      return;
+    }
+
+    try {
+      final subs = await DashboardService(supabase).client
+          .from('submissions')
+          .select('id')
+          .eq('todo_id', todoId);
+      final subList = (subs as List).cast<Map<String, dynamic>>();
+
+      int graded = 0;
+      int errors = 0;
+      for (final sub in subList) {
+        try {
+          await DashboardService(supabase).gradeSubmission(
+            submissionId: sub['id'].toString(),
+            score: defaultScore,
+            feedback: 'Nilai ditetapkan oleh guru',
+          );
+          graded++;
+        } catch (_) {
+          errors++;
+        }
+      }
+
+      await AuthService(supabase).logAudit(
+        action: 'BULK_GRADE_RUN',
+        description: 'Nilai default $defaultScore: $graded berhasil, $errors gagal untuk tugas $taskName',
+        targetRecordId: todoId,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Selesai: $graded dinilai${errors > 0 ? ", $errors gagal" : ""}.'),
+        duration: const Duration(seconds: 5),
+      ));
+      refresh();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menetapkan nilai: $e')),
+        );
+      }
+    }
+  }
+
+  // ── Build ────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) => Panel(
-    title: 'PENGUMPULAN & PENILAIAN',
-    heading: 'Evaluasi Tugas Siswa',
-    child: FutureBuilder<List<Map<String, dynamic>>>(
-      future: future,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const LinearProgressIndicator();
-        }
-        if (snapshot.hasError) {
-          return _RefreshMessage(
-            message: 'Gagal memuat pengumpulan: ${snapshot.error}',
-            onRefresh: refresh,
-          );
-        }
-        final list = snapshot.data ?? const [];
-        if (list.isEmpty) {
-          return const Text(
-            'Belum ada pengumpulan tugas dari siswa.',
-            style: TextStyle(color: muted),
-          );
-        }
-        return Column(
-          children: list.map((sub) {
-            final todo = sub['todos'];
-            final todoName = todo is Map ? todo['name']?.toString() : 'Tugas';
-            final studentRecord = sub['students'];
-            final studentProfile = studentRecord is Map
-                ? studentRecord['profiles']
-                : null;
-            final studentName = studentProfile is Map
-                ? studentProfile['full_name']?.toString()
-                : 'Siswa';
-            final grades = _gradeMap(sub['grades']);
-            final score = grades?['score']?.toString();
-            final feedback = grades?['feedback']?.toString();
-            final filePath = sub['file_path']?.toString();
-            final fileName = sub['file_name']?.toString();
+    title: 'EVALUASI TUGAS SISWA',
+    heading: 'Pengumpulan & Penilaian',
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Filter per tugas
+        if (_todoList.isNotEmpty) ...[
+          DropdownButtonFormField<String>(
+            initialValue: _filterTodoId,
+            decoration: const InputDecoration(
+              labelText: 'Filter Tugas',
+              border: OutlineInputBorder(),
+              isDense: true,
+              prefixIcon: Icon(Icons.filter_list, size: 18),
+            ),
+            hint: const Text('Semua Tugas'),
+            items: [
+              const DropdownMenuItem(value: null, child: Text('Semua Tugas')),
+              ..._todoList.map((t) => DropdownMenuItem(value: t['id']?.toString(), child: Text(t['name']?.toString() ?? 'Tugas'))),
+            ],
+            onChanged: (v) => setState(() => _filterTodoId = v),
+          ),
+          const SizedBox(height: 14),
+        ],
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const LinearProgressIndicator();
+            }
+            if (snapshot.hasError) {
+              return _RefreshMessage(message: 'Gagal memuat pengumpulan: ${snapshot.error}', onRefresh: refresh);
+            }
+            // Terapkan filter tugas
+            final rawList = snapshot.data ?? const [];
+            final list = _filterTodoId == null
+                ? rawList
+                : rawList.where((s) => s['todo_id']?.toString() == _filterTodoId).toList();
 
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xfff9fafc),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xffe7eaf1)),
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final details = Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$studentName — $todoName',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      if (filePath != null && filePath.isNotEmpty) ...[
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SelectableText(
-                                'File: ${fileName ?? filePath}',
-                                style: const TextStyle(
-                                  color: muted,
-                                  fontSize: 12,
+            if (list.isEmpty) {
+              return const Text('Belum ada pengumpulan tugas dari siswa.', style: TextStyle(color: muted));
+            }
+
+            // Kumpulkan semua todo_id unik agar tombol aksi per-tugas tampil
+            final uniqueTodoIds = list.map((s) => s['todo_id']?.toString()).whereType<String>().toSet().toList();
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Tombol aksi per-tugas ──────────────────────────────────
+                ...uniqueTodoIds.map((tid) {
+                  final sample = list.firstWhere((s) => s['todo_id']?.toString() == tid, orElse: () => {});
+                  final tMeta = sample['todos'];
+                  final tName = tMeta is Map ? tMeta['name']?.toString() ?? 'Tugas' : 'Tugas';
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xfff4f6fb),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xffe0e6f0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(tName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: ink)),
+                        const SizedBox(height: 8),
+                        Wrap(spacing: 8, runSpacing: 6, children: [
+                          FilledButton.icon(
+                            onPressed: () => _runAutoGrade(tid, tName).ignore(),
+                            icon: const Icon(Icons.auto_awesome, size: 14),
+                            label: const Text('Nilai Otomatis'),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              textStyle: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ]),
+                      ],
+                    ),
+                  );
+                }),
+                const SizedBox(height: 14),
+                // ── Daftar pengumpulan ─────────────────────────────────────
+                ...list.map((sub) {
+                  final todo = sub['todos'];
+                  final todoName = todo is Map ? todo['name']?.toString() : 'Tugas';
+                  final studentProfile = sub['student_profile'] as Map<String, dynamic>?;
+                  final studentName = studentProfile?['full_name']?.toString() ?? 'Siswa';
+                  final grades = _gradeMap(sub['grades']);
+                  final score = grades?['score']?.toString();
+                  final feedback = grades?['feedback']?.toString();
+                  final hasContent = (sub['file_path']?.toString() ?? '').isNotEmpty ||
+                      (sub['content_text']?.toString() ?? '').isNotEmpty ||
+                      (sub['note']?.toString() ?? '').isNotEmpty;
+
+                  final gradeSource = grades?['source']?.toString() ?? 'manual';
+                  final needsReview = grades?['needs_review'] == true;
+                  final sourceBadgeLabel = gradeSource == 'auto' ? 'OTOMATIS' : gradeSource == 'ai' ? 'AI' : 'MANUAL';
+                  final sourceBadgeColor = gradeSource == 'auto' ? Colors.teal : gradeSource == 'ai' ? Colors.purple : Colors.grey;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xfff9fafc),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xffe7eaf1)),
+                    ),
+                    child: LayoutBuilder(builder: (context, constraints) {
+                      final details = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('$studentName — $todoName', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          const SizedBox(height: 3),
+                          Text('Dikirim: ${_readableDate(sub['submitted_at'])}', style: const TextStyle(color: muted, fontSize: 11)),
+                          if (feedback != null && feedback.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text('Feedback: $feedback', style: const TextStyle(color: muted, fontSize: 11)),
+                            ),
+                        ],
+                      );
+
+                      // Badge sumber nilai + tombol aksi sejajar
+                      final actions = Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (score != null) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: sourceBadgeColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: sourceBadgeColor.withValues(alpha: 0.4)),
+                              ),
+                              child: Text(sourceBadgeLabel, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: sourceBadgeColor)),
+                            ),
+                            if (needsReview) ...[
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: Colors.orange.shade300),
+                                ),
+                                child: Text('TINJAU', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.orange.shade700)),
+                              ),
+                            ],
+                            const SizedBox(width: 6),
+                          ],
+                          // Tombol lihat lampiran/teks
+                          if (hasContent)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: OutlinedButton.icon(
+                                onPressed: () => _showSubmissionContent(sub),
+                                icon: const Icon(Icons.visibility_outlined, size: 14),
+                                label: const Text('Lihat', style: TextStyle(fontSize: 12)),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  minimumSize: Size.zero,
                                 ),
                               ),
                             ),
-                            TextButton.icon(
-                              onPressed: () => _openSubmissionFile(filePath),
-                              icon: const Icon(
-                                Icons.download_rounded,
-                                size: 16,
-                              ),
-                              label: const Text('Buka'),
+                          // Tombol beri/lihat nilai (manual)
+                          FilledButton.tonal(
+                            onPressed: () => _showGradeDialog(sub).ignore(),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: Size.zero,
+                              textStyle: const TextStyle(fontSize: 12),
                             ),
-                          ],
-                        ),
-                      ] else if (sub['file_url'] != null &&
-                          sub['file_url'].toString().trim().isNotEmpty) ...[
-                        SelectableText(
-                          'File: ${sub['file_url']}',
-                          style: const TextStyle(color: muted, fontSize: 12),
-                        ),
-                      ],
-                      Text(
-                        'Dikirim: ${_readableDate(sub['submitted_at'])}',
-                        style: const TextStyle(color: muted, fontSize: 11),
-                      ),
-                      if (sub['note'] != null &&
-                          sub['note'].toString().isNotEmpty)
-                        Text(
-                          'Catatan: ${sub['note']}',
-                          style: const TextStyle(color: muted, fontSize: 11),
-                        ),
-                      if (feedback != null && feedback.isNotEmpty)
-                        Text(
-                          'Feedback: $feedback',
-                          style: const TextStyle(color: muted, fontSize: 11),
-                        ),
-                    ],
+                            child: Text(score != null ? 'Nilai: $score' : 'Beri Nilai'),
+                          ),
+                        ],
+                      );
+
+                      if (constraints.maxWidth < 520) {
+                        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          details,
+                          const SizedBox(height: 8),
+                          Align(alignment: Alignment.centerRight, child: actions),
+                        ]);
+                      }
+                      return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                        Expanded(child: details),
+                        const SizedBox(width: 8),
+                        actions,
+                      ]);
+                    }),
                   );
-                  final action = FilledButton.tonal(
-                    onPressed: () => _showGradeDialog(sub),
-                    child: Text(score != null ? 'Nilai: $score' : 'Beri Nilai'),
-                  );
-                  if (constraints.maxWidth < 560) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        details,
-                        const SizedBox(height: 10),
-                        Align(alignment: Alignment.centerRight, child: action),
-                      ],
-                    );
-                  }
-                  return Row(
-                    children: [
-                      Expanded(child: details),
-                      const SizedBox(width: 8),
-                      action,
-                    ],
-                  );
-                },
-              ),
+                }),
+              ],
             );
-          }).toList(),
-        );
-      },
+          },
+        ),
+      ],
     ),
   );
 }
@@ -2811,28 +2855,13 @@ class _UserManagementPanelState extends State<UserManagementPanel> {
   @override
   void initState() {
     super.initState();
-    debugPrint('MOUNT UserManagementPanel instance=${identityHashCode(this)}');
     search();
   }
 
-  @override
-  void dispose() {
-    debugPrint(
-      'DISPOSE UserManagementPanel instance=${identityHashCode(this)}',
-    );
-    searchController.dispose();
-    super.dispose();
-  }
-
   Future<void> search() async {
-    setState(() {
-      loading = true;
-      error = null;
-    });
+    setState(() { loading = true; error = null; });
     try {
-      final results = await AuthService(
-        supabase,
-      ).searchUsers(searchController.text);
+      final results = await AuthService(supabase).searchUsers(searchController.text);
       if (mounted) setState(() => users = results);
     } catch (e) {
       if (mounted) {
@@ -2846,220 +2875,81 @@ class _UserManagementPanelState extends State<UserManagementPanel> {
     }
   }
 
-  void _showChangeRoleDialog(Map<String, dynamic> user) {
-    final currentRole = user['role']?.toString() ?? 'student';
-    String selectedRole = currentRole;
-    debugPrint(
-      'OPEN change role dialog instance=${identityHashCode(this)} target=${user['email']} currentRole=$currentRole',
-    );
-    if (currentRole == 'superadmin') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Role superadmin tidak boleh diubah.')),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text('Ubah Role: ${user['full_name'] ?? user['email']}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Email: ${user['email']}'),
-              const SizedBox(height: 16),
-              const Text(
-                'Pilih role baru:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              DropdownButton<String>(
-                value: selectedRole,
-                isExpanded: true,
-                items: const [
-                  DropdownMenuItem(
-                    value: 'student',
-                    child: Text('Student (Siswa)'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'teacher',
-                    child: Text('Teacher (Guru)'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'admin',
-                    child: Text('Admin (Staf Operasional)'),
-                  ),
-                ],
-                onChanged: (val) {
-                  if (val != null) setDialogState(() => selectedRole = val);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (selectedRole.trim().isEmpty) return;
-
-                final messenger = ScaffoldMessenger.maybeOf(context);
-                try {
-                  final currentUserId = user['id']?.toString() ?? '';
-                  await AuthService(supabase).updateUserRole(
-                    userId: currentUserId,
-                    newRole: selectedRole,
-                  );
-                  if (!ctx.mounted) return;
-                  debugPrint(
-                    'CLOSE change role dialog instance=${identityHashCode(this)} target=${user['email']} selectedRole=$selectedRole',
-                  );
-                  Navigator.pop(ctx);
-                  if (messenger != null) {
-                    messenger.showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Role berhasil diubah menjadi $selectedRole',
-                        ),
-                      ),
-                    );
-                  }
-                  if (mounted) {
-                    search();
-                  }
-                } catch (e) {
-                  if (!ctx.mounted) return;
-                  debugPrint(
-                    'User role update failed: type=${e.runtimeType} value=$e',
-                  );
-                  final message = switch (e) {
-                    AuthException() => e.message,
-                    PostgrestException() =>
-                      'Supabase error ${e.code}: ${e.message}',
-                    _ =>
-                      'Gagal memperbarui role user. ${e.toString().replaceAll('Exception: ', '')}',
-                  };
-                  if (messenger != null) {
-                    messenger.showSnackBar(SnackBar(content: Text(message)));
-                  }
-                }
-              },
-              child: const Text('Simpan'),
-            ),
-          ],
-        ),
-      ),
-    );
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    debugPrint(
-      'BUILD UserManagementPanel instance=${identityHashCode(this)} loading=$loading users=${users.length}',
-    );
-    return Panel(
-      title: 'SUPERADMIN / USER MANAGEMENT',
-      heading: 'Kelola Pengguna & Peran',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final searchButton = FilledButton.icon(
-                onPressed: loading ? null : search,
-                icon: loading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.search),
-                label: Text(loading ? 'Mencari...' : 'Cari'),
-              );
-              final field = TextField(
-                controller: searchController,
-                decoration: const InputDecoration(
-                  labelText: 'Cari berdasarkan Email atau Nama',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (_) {
-                  if (!loading) search();
-                },
-              );
-              if (constraints.maxWidth < 560) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [field, const SizedBox(height: 10), searchButton],
-                );
-              }
-              return Row(
+  Widget build(BuildContext context) => Panel(
+    title: 'SUPERADMIN / USER MANAGEMENT',
+    heading: 'Kelola Pengguna & Peran',
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final searchButton = FilledButton.icon(
+              onPressed: loading ? null : search,
+              icon: loading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search),
+              label: Text(loading ? 'Mencari...' : 'Cari'),
+            );
+            final field = TextField(
+              controller: searchController,
+              decoration: const InputDecoration(
+                labelText: 'Cari berdasarkan Email atau Nama',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) {
+                if (!loading) search();
+              },
+            );
+            if (constraints.maxWidth < 560) {
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [field, const SizedBox(height: 10), searchButton]);
+            }
+            return Row(children: [Expanded(child: field), const SizedBox(width: 12), searchButton]);
+          },
+        ),
+        const SizedBox(height: 16),
+        if (loading) const LinearProgressIndicator(),
+        if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
+        if (!loading && error == null && users.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Text('Tidak ada pengguna yang ditemukan.', style: TextStyle(color: muted)),
+          ),
+        if (users.isNotEmpty)
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: users.length,
+            separatorBuilder: (context, index) => const Divider(),
+            itemBuilder: (context, index) {
+              final user = users[index];
+              final role = user['role']?.toString() ?? 'student';
+              final details = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: field),
-                  const SizedBox(width: 12),
-                  searchButton,
+                  Text(user['full_name']?.toString() ?? 'Pengguna', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text('Email: ${user['email']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: muted, fontSize: 12)),
                 ],
               );
-            },
-          ),
-          const SizedBox(height: 16),
-          if (loading) const LinearProgressIndicator(),
-          if (error != null)
-            Text(error!, style: const TextStyle(color: Colors.red)),
-          if (!loading && error == null && users.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text(
-                'Tidak ada pengguna yang ditemukan.',
-                style: TextStyle(color: muted),
-              ),
-            ),
-          if (users.isNotEmpty)
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: users.length,
-              separatorBuilder: (context, index) => const Divider(),
-              itemBuilder: (context, index) {
-                final user = users[index];
-                final role = user['role']?.toString() ?? 'student';
-                final details = Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      user['full_name']?.toString() ?? 'Pengguna',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Email: ${user['email']}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: muted, fontSize: 12),
-                    ),
-                  ],
-                );
-
-                final actions = Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+              final actions = Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                         color: role == 'superadmin'
                             ? Colors.purple.shade50
                             : role == 'admin'
-                            ? Colors.red.shade50
-                            : role == 'teacher'
-                            ? Colors.blue.shade50
-                            : Colors.green.shade50,
+                                ? Colors.red.shade50
+                                : role == 'teacher'
+                                    ? Colors.blue.shade50
+                                    : Colors.green.shade50,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -3070,53 +2960,1083 @@ class _UserManagementPanelState extends State<UserManagementPanel> {
                           color: role == 'superadmin'
                               ? Colors.purple.shade800
                               : role == 'admin'
-                              ? Colors.red.shade800
-                              : role == 'teacher'
-                              ? Colors.blue.shade800
-                              : Colors.green.shade800,
+                                  ? Colors.red.shade800
+                                  : role == 'teacher'
+                                      ? Colors.blue.shade800
+                                      : Colors.green.shade800,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    if (role != 'superadmin')
-                      OutlinedButton(
-                        onPressed: () => _showChangeRoleDialog(user),
-                        child: const Text('Ubah Role'),
-                      ),
-                  ],
-                );
+                ],
+              );
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth < 520) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [details, const SizedBox(height: 10), Align(alignment: Alignment.centerRight, child: actions)]),
+                    );
+                  }
+                  return ListTile(contentPadding: EdgeInsets.zero, title: details, trailing: actions);
+                },
+              );
+            },
+          ),
+      ],
+    ),
+  );
+}
 
-                return LayoutBuilder(
-                  builder: (context, constraints) {
-                    if (constraints.maxWidth < 520) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            details,
-                            const SizedBox(height: 10),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: actions,
-                            ),
-                          ],
-                        ),
+class AccountManagementPanel extends StatefulWidget {
+  const AccountManagementPanel({super.key});
+
+  @override
+  State<AccountManagementPanel> createState() => _AccountManagementPanelState();
+}
+
+class _AccountManagementPanelState extends State<AccountManagementPanel> {
+  // Form controllers
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final usernameController = TextEditingController();
+  final passwordController = TextEditingController();
+
+  // Form state
+  String selectedRole = 'student';
+  String? selectedDepartmentId;
+  List<Map<String, dynamic>> departments = [];
+  bool isSubmitting = false;
+
+  // User list state
+  List<Map<String, dynamic>> users = [];
+  bool isLoadingUsers = false;
+  String? usersError;
+
+  @override
+  void initState() {
+    super.initState();
+    passwordController.text = _generatePassword();
+    _loadDepartments();
+    _loadUsers();
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    usernameController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDepartments() async {
+    if (!mounted) return;
+    try {
+      final result = await DashboardService(supabase).fetchDepartments();
+      if (!mounted) return;
+      setState(() {
+        departments = result;
+        if (result.isNotEmpty && selectedDepartmentId == null) {
+          selectedDepartmentId = result.first['id']?.toString();
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadUsers() async {
+    if (!mounted) return;
+    setState(() { isLoadingUsers = true; usersError = null; });
+    try {
+      final result = await AuthService(supabase).searchUsers('');
+      if (!mounted) return;
+      setState(() { users = result; isLoadingUsers = false; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { usersError = 'Gagal memuat pengguna: $e'; isLoadingUsers = false; });
+    }
+  }
+
+  String get _functionUrl {
+    const url = String.fromEnvironment('SUPABASE_URL');
+    return '$url/functions/v1/manage-staff';
+  }
+
+  Map<String, String> get _authHeaders {
+    final token = supabase.auth.currentSession?.accessToken ?? '';
+    const anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+      'apikey': anonKey,
+    };
+  }
+
+  Future<void> _submitCreateAccount() async {
+    final name = nameController.text.trim();
+    final email = emailController.text.trim().toLowerCase();
+    final username = usernameController.text.trim().toLowerCase();
+    final password = passwordController.text;
+
+    if (name.isEmpty || email.isEmpty || username.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Semua field wajib diisi.')),
+      );
+      return;
+    }
+
+    setState(() => isSubmitting = true);
+    try {
+      final resp = await http.post(
+        Uri.parse('$_functionUrl/create-student'),
+        headers: _authHeaders,
+        body: jsonEncode({
+          'full_name': name,
+          'email': email,
+          'username': username,
+          'password': password,
+          'role': selectedRole,
+          if (selectedDepartmentId != null) 'department_id': selectedDepartmentId,
+        }),
+      );
+
+      final body = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
+        await AuthService(supabase).logAudit(
+          action: 'ACCOUNT_CREATED',
+          description: 'Akun dibuat: $name ($selectedRole)',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Akun $name berhasil dibuat.')),
+          );
+          nameController.clear();
+          emailController.clear();
+          usernameController.clear();
+          passwordController.text = _generatePassword();
+          setState(() { selectedRole = 'student'; });
+          _loadUsers();
+        }
+      } else {
+        final errMsg = body['error']?.toString() ?? 'Gagal membuat akun.';
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errMsg)));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal terhubung ke server: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => isSubmitting = false);
+    }
+  }
+
+  Future<void> _toggleUserStatus(Map<String, dynamic> user, String newStatus) async {
+    final userId = user['id']?.toString() ?? '';
+    final userName = user['full_name']?.toString() ?? user['email']?.toString() ?? 'Pengguna';
+    try {
+      final resp = await http.patch(
+        Uri.parse(_functionUrl),
+        headers: _authHeaders,
+        body: jsonEncode({ 'user_id': userId, 'status': newStatus }),
+      );
+      if (resp.statusCode == 200) {
+        await AuthService(supabase).logAudit(
+          action: 'ACCOUNT_STATUS_CHANGED',
+          description: 'Status akun $userName diubah menjadi $newStatus',
+          targetUserId: userId,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Status akun $userName berhasil diubah.')),
+          );
+          _loadUsers();
+        }
+      } else {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(body['error']?.toString() ?? 'Gagal mengubah status.')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal terhubung ke server: $e')),
+        );
+      }
+    }
+  }
+
+  void _showResetPasswordDialog(Map<String, dynamic> user) {
+    final userId = user['id']?.toString() ?? '';
+    final userName = user['full_name']?.toString() ?? user['email']?.toString() ?? 'Pengguna';
+    final newPasswordController = TextEditingController(text: _generatePassword());
+    bool resetting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Reset Password: $userName'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Password baru untuk akun ini:', style: TextStyle(color: muted)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: TextField(controller: newPasswordController, decoration: const InputDecoration(labelText: 'Password baru', border: OutlineInputBorder()))),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Generate ulang',
+                    icon: const Icon(Icons.refresh),
+                    onPressed: () => setDialogState(() => newPasswordController.text = _generatePassword()),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: resetting ? null : () => Navigator.pop(ctx), child: const Text('Batal')),
+            FilledButton(
+              onPressed: resetting ? null : () async {
+                final newPw = newPasswordController.text;
+                if (newPw.length < 8) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password minimal 8 karakter.')));
+                  return;
+                }
+                setDialogState(() => resetting = true);
+                try {
+                  final resp = await http.patch(
+                    Uri.parse('$_functionUrl/reset-password'),
+                    headers: _authHeaders,
+                    body: jsonEncode({ 'user_id': userId, 'new_password': newPw }),
+                  );
+                  if (resp.statusCode == 200) {
+                    await AuthService(supabase).logAudit(
+                      action: 'ACCOUNT_PASSWORD_RESET',
+                      description: 'Password akun $userName direset oleh admin',
+                      targetUserId: userId,
+                    );
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(content: Text('Password $userName berhasil direset.')),
                       );
                     }
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: details,
-                      trailing: actions,
+                  } else {
+                    final body = jsonDecode(resp.body) as Map<String, dynamic>;
+                    if (ctx.mounted) setDialogState(() => resetting = false);
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(content: Text(body['error']?.toString() ?? 'Gagal reset password.')),
+                      );
+                    }
+                  }
+                } catch (e) {
+                  if (ctx.mounted) setDialogState(() => resetting = false);
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(content: Text('Gagal terhubung ke server: $e')),
                     );
-                  },
-                );
+                  }
+                }
+              },
+              child: Text(resetting ? 'Mereset...' : 'Reset Password'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _importCsv() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+      withData: true,
+    );
+    if (result == null || result.files.single.bytes == null) return;
+
+    final csvText = utf8.decode(result.files.single.bytes!);
+    final lines = csvText.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+    if (lines.isEmpty) return;
+
+    // Skip header baris pertama jika mengandung 'nama' atau 'email'
+    final startIndex = lines.first.toLowerCase().contains('nama') || lines.first.toLowerCase().contains('email') ? 1 : 0;
+    final dataLines = lines.sublist(startIndex);
+
+    if (dataLines.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File CSV tidak memiliki data.')));
+      return;
+    }
+
+    final results = <ImportResult>[];
+    for (int i = 0; i < dataLines.length; i++) {
+      final cols = dataLines[i].split(',').map((c) => c.trim()).toList();
+      if (cols.length < 4) {
+        results.add(ImportResult(rowIndex: i + 1, name: cols.firstOrNull ?? '', email: '', success: false, errorMessage: 'Format kolom tidak lengkap (butuh: nama,email,username,kelas)'));
+        continue;
+      }
+      final rowName = cols[0];
+      final rowEmail = cols[1].toLowerCase();
+      final rowUsername = cols[2].toLowerCase();
+      final rowKelas = cols[3];
+
+      // Cari department_id dari kode kelas
+      final dept = departments.where((d) =>
+        d['code']?.toString().toLowerCase() == rowKelas.toLowerCase() ||
+        d['name']?.toString().toLowerCase() == rowKelas.toLowerCase()
+      ).firstOrNull;
+
+      final rowPassword = _generatePassword();
+      try {
+        final resp = await http.post(
+          Uri.parse('$_functionUrl/create-student'),
+          headers: _authHeaders,
+          body: jsonEncode({
+            'full_name': rowName,
+            'email': rowEmail,
+            'username': rowUsername,
+            'password': rowPassword,
+            'role': 'student',
+            if (dept != null) 'department_id': dept['id'],
+          }),
+        );
+        if (resp.statusCode == 201 || resp.statusCode == 200) {
+          results.add(ImportResult(rowIndex: i + 1, name: rowName, email: rowEmail, success: true));
+        } else {
+          final body = jsonDecode(resp.body) as Map<String, dynamic>;
+          results.add(ImportResult(rowIndex: i + 1, name: rowName, email: rowEmail, success: false, errorMessage: body['error']?.toString() ?? 'Gagal'));
+        }
+      } catch (e) {
+        results.add(ImportResult(rowIndex: i + 1, name: rowName, email: rowEmail, success: false, errorMessage: e.toString()));
+      }
+    }
+
+    final successCount = results.where((r) => r.success).length;
+    final failCount = results.where((r) => !r.success).length;
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Hasil Import CSV'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Berhasil: $successCount akun', style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.bold)),
+                Text('Gagal: $failCount akun', style: TextStyle(color: failCount > 0 ? Colors.red.shade700 : muted, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                if (failCount > 0) ...[
+                  const Text('Detail kegagalan:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    height: 200,
+                    child: ListView(
+                      children: results.where((r) => !r.success).map((r) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text('Baris ${r.rowIndex}: ${r.name} (${r.email}) — ${r.errorMessage}', style: const TextStyle(fontSize: 12, color: muted)),
+                      )).toList(),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup'))],
+        ),
+      );
+      _loadUsers();
+    }
+  }
+
+  Widget _buildCreateForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Form Buat Akun', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: ink)),
+        const SizedBox(height: 14),
+        LayoutBuilder(builder: (context, constraints) {
+          final wide = constraints.maxWidth > 600;
+          final nameField = InputField(label: 'Nama Lengkap', hint: 'Nama siswa/guru', controller: nameController);
+          final emailField = InputField(label: 'Email', hint: 'email@contoh.com', controller: emailController);
+          final usernameField = InputField(label: 'Username', hint: 'contoh: siswa_01', controller: usernameController);
+          if (wide) {
+            return Column(children: [
+              Row(children: [Expanded(child: nameField), const SizedBox(width: 14), Expanded(child: emailField)]),
+              const SizedBox(height: 14),
+              Row(children: [Expanded(child: usernameField), const SizedBox(width: 14), Expanded(child: _buildRoleDropdown())]),
+            ]);
+          }
+          return Column(children: [nameField, const SizedBox(height: 14), emailField, const SizedBox(height: 14), usernameField, const SizedBox(height: 14), _buildRoleDropdown()]);
+        }),
+        if (selectedRole == 'student') ...[
+          const SizedBox(height: 14),
+          _buildDepartmentDropdown(),
+        ],
+        const SizedBox(height: 14),
+        _buildPasswordRow(),
+        const SizedBox(height: 18),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            FilledButton.icon(
+              onPressed: isSubmitting ? null : _submitCreateAccount,
+              icon: isSubmitting ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.person_add),
+              label: Text(isSubmitting ? 'Menyimpan...' : 'Simpan Akun'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _importCsv,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Import CSV'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const Text('Format CSV: nama,email,username,kelas (satu baris per siswa, baris pertama bisa header)', style: TextStyle(color: muted, fontSize: 11)),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xfffef3c7),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xfffbbf24)),
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Catatan Aktivasi Akun:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xff92400e))),
+              SizedBox(height: 4),
+              Text(
+                '• Akun dibuat langsung aktif dengan password yang ditampilkan di form ini.\n'
+                '• Salin dan bagikan password kepada pengguna secara aman (jangan melalui email biasa).\n'
+                '• Pengguna disarankan mengganti password setelah login pertama.\n'
+                '• Untuk alur invitation email otomatis, aktifkan SMTP di Supabase Dashboard → Authentication → Email Templates.',
+                style: TextStyle(fontSize: 11, color: Color(0xff92400e), height: 1.5),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRoleDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Role', style: TextStyle(color: TalogColors.textHeading, fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: selectedRole,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: TalogColors.border)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: TalogColors.border)),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'student', child: Text('Siswa (Student)')),
+            DropdownMenuItem(value: 'teacher', child: Text('Guru (Teacher)')),
+            DropdownMenuItem(value: 'admin', child: Text('Admin')),
+            DropdownMenuItem(value: 'superadmin', child: Text('Super Admin')),
+          ],
+          onChanged: (val) => setState(() => selectedRole = val ?? 'student'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDepartmentDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Jurusan / Kelas', style: TextStyle(color: TalogColors.textHeading, fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: selectedDepartmentId,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: TalogColors.border)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: TalogColors.border)),
+          ),
+          hint: const Text('Pilih jurusan'),
+          items: departments.map((d) {
+            final code = d['code']?.toString() ?? '';
+            final name = d['name']?.toString() ?? code;
+            return DropdownMenuItem(value: d['id']?.toString(), child: Text('$code - $name'));
+          }).toList(),
+          onChanged: (val) => setState(() => selectedDepartmentId = val),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPasswordRow() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Password Awal', style: TextStyle(color: TalogColors.textHeading, fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: passwordController,
+                readOnly: true,
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: const Color(0xfff8f9fe),
+                  hintText: 'Password auto-generate',
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: TalogColors.border)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: TalogColors.border)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Salin password',
+              icon: const Icon(Icons.copy),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: passwordController.text));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password disalin ke clipboard.')));
               },
             ),
+            IconButton(
+              tooltip: 'Generate ulang',
+              icon: const Icon(Icons.refresh),
+              onPressed: () => setState(() => passwordController.text = _generatePassword()),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUserList() {
+    if (isLoadingUsers) return const LinearProgressIndicator();
+    if (usersError != null) return _RefreshMessage(message: usersError!, onRefresh: _loadUsers);
+    if (users.isEmpty) return const Text('Belum ada pengguna.', style: TextStyle(color: muted));
+    return Column(
+      children: users.map((user) {
+        final userName = user['full_name']?.toString() ?? 'Pengguna';
+        final userEmail = user['email']?.toString() ?? '';
+        final role = user['role']?.toString() ?? 'student';
+        final status = user['status']?.toString() ?? 'active';
+        final isActive = status == 'active';
+        final roleColor = role == 'superadmin' ? Colors.purple.shade800 : role == 'admin' ? Colors.red.shade800 : role == 'teacher' ? Colors.blue.shade800 : Colors.green.shade800;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xfff9fafc),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xffe7eaf1)),
+          ),
+          child: LayoutBuilder(builder: (context, constraints) {
+            final info = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(userEmail, style: const TextStyle(color: muted, fontSize: 11)),
+                const SizedBox(height: 4),
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(color: roleColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(5)),
+                    child: Text(role.toUpperCase(), style: TextStyle(color: roleColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isActive ? Colors.green.shade50 : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(isActive ? 'Aktif' : 'Nonaktif', style: TextStyle(color: isActive ? Colors.green.shade700 : Colors.grey.shade600, fontSize: 10, fontWeight: FontWeight.bold)),
+                  ),
+                ]),
+              ],
+            );
+            final actions = Wrap(
+              spacing: 6,
+              children: [
+                if (role != 'superadmin') ...[
+                  TextButton.icon(
+                    onPressed: () => _toggleUserStatus(user, isActive ? 'disabled' : 'active'),
+                    icon: Icon(isActive ? Icons.block : Icons.check_circle_outline, size: 16),
+                    label: Text(isActive ? 'Nonaktifkan' : 'Aktifkan'),
+                    style: TextButton.styleFrom(foregroundColor: isActive ? Colors.orange : Colors.green),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => _showResetPasswordDialog(user),
+                    icon: const Icon(Icons.lock_reset, size: 16),
+                    label: const Text('Reset PW'),
+                    style: TextButton.styleFrom(foregroundColor: violet),
+                  ),
+                ],
+              ],
+            );
+            if (constraints.maxWidth < 520) {
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [info, const SizedBox(height: 8), actions]);
+            }
+            return Row(children: [Expanded(child: info), actions]);
+          }),
+        );
+      }).toList(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      title: 'MANAJEMEN AKUN',
+      heading: 'Buat & Kelola Akun Pengguna',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildCreateForm(),
+          const SizedBox(height: 28),
+          const Divider(),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Daftar Pengguna', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: ink)),
+              IconButton(tooltip: 'Muat ulang', icon: const Icon(Icons.refresh), onPressed: _loadUsers),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildUserList(),
         ],
       ),
     );
   }
+}
+
+class GradeRecapPanel extends StatefulWidget {
+  const GradeRecapPanel({super.key});
+  @override
+  State<GradeRecapPanel> createState() => _GradeRecapPanelState();
+}
+
+class _GradeRecapPanelState extends State<GradeRecapPanel> {
+  List<Map<String, dynamic>> _departments = [];
+  List<Map<String, dynamic>> _allTodos = [];
+  // Selected todo IDs for export (null = all)
+  Set<String> _selectedTodoIds = {};
+  String? _selectedDeptId;
+  Map<String, dynamic>? _recap;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDepts();
+  }
+
+  Future<void> _loadDepts() async {
+    try {
+      final d = await DashboardService(supabase).fetchDepartments();
+      if (!mounted) return;
+      setState(() => _departments = d);
+    } catch (_) {}
+    await _loadTodos();
+    _loadRecap();
+  }
+
+  Future<void> _loadTodos() async {
+    try {
+      final todos = await DashboardService(supabase).fetchTodos();
+      if (!mounted) return;
+      final filtered = _selectedDeptId == null
+          ? todos
+          : todos.where((t) => t['department_id']?.toString() == _selectedDeptId).toList();
+      setState(() {
+        _allTodos = filtered;
+        _selectedTodoIds = filtered.map((t) => t['id']?.toString() ?? '').where((id) => id.isNotEmpty).toSet();
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadRecap() async {
+    if (!mounted) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      final data = await DashboardService(supabase).fetchGradeRecap(departmentId: _selectedDeptId);
+      final filteredTodos = _selectedDeptId == null
+          ? _allTodos
+          : _allTodos.where((t) => t['department_id']?.toString() == _selectedDeptId).toList();
+      if (!mounted) return;
+      setState(() {
+        _recap = data;
+        _selectedTodoIds = filteredTodos
+            .map((t) => t['id']?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = 'Gagal memuat rekap: $e'; _loading = false; });
+    }
+  }
+
+  // Ekspor CSV hanya untuk tugas yang dipilih
+  void _exportCsv() {
+    final recap = _recap;
+    if (recap == null) return;
+    final allTodos = (recap['todos'] as List).cast<Map<String, dynamic>>();
+    // Filter hanya tugas yang dipilih
+    final todos = _selectedTodoIds.isEmpty
+        ? allTodos
+        : allTodos.where((t) => _selectedTodoIds.contains(t['id']?.toString())).toList();
+    final matrix = recap['matrix'] as Map<String, dynamic>;
+    if (todos.isEmpty || matrix.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tidak ada data untuk diekspor.')));
+      return;
+    }
+    final buf = StringBuffer();
+    buf.write('\uFEFF'); // BOM agar Excel baca UTF-8 dengan benar
+    buf.write('Nama Siswa');
+    for (final t in todos) { buf.write(',${(t['name'] ?? 'Tugas').toString().replaceAll(',', ';')}'); }
+    buf.write(',Rata-rata,Dikumpulkan,Belum\n');
+    for (final entry in matrix.entries) {
+      final sd = entry.value as Map<String, dynamic>;
+      final grades = sd['grades'] as Map<String, dynamic>;
+      buf.write((sd['full_name'] ?? 'Siswa').toString().replaceAll(',', ' '));
+      final scores = <double>[];
+      int collected = 0;
+      for (final t in todos) {
+        final g = grades[t['id']?.toString()] as Map<String, dynamic>?;
+        if (g != null) {
+          collected++;
+          final sc = g['score'];
+          if (sc != null) { scores.add((sc as num).toDouble()); buf.write(',$sc'); }
+          else { buf.write(',Terkumpul'); }
+        } else { buf.write(',-'); }
+      }
+      final avg = scores.isEmpty ? '-' : (scores.reduce((a, b) => a + b) / scores.length).toStringAsFixed(1);
+      buf.write(',$avg,$collected,${todos.length - collected}\n');
+    }
+    Clipboard.setData(ClipboardData(text: buf.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Rekap ${todos.length} tugas disalin ke clipboard. Tempel ke Excel / Google Sheets.'),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Widget _statChip(String label, String value, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: color.withValues(alpha: 0.25)),
+    ),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: color)),
+      const SizedBox(height: 2),
+      Text(label, style: const TextStyle(fontSize: 10, color: muted)),
+    ]),
+  );
+
+  // Hitung statistik hanya untuk tugas yang dipilih
+  Widget _buildTable(Map<String, dynamic> recap) {
+    final allTodos = (recap['todos'] as List).cast<Map<String, dynamic>>();
+    final todos = _selectedTodoIds.isEmpty
+        ? allTodos
+        : allTodos.where((t) => _selectedTodoIds.contains(t['id']?.toString())).toList();
+    final matrix = recap['matrix'] as Map<String, dynamic>;
+    if (todos.isEmpty) return const Text('Belum ada tugas yang dipilih.', style: TextStyle(color: muted));
+    if (matrix.isEmpty) return const Text('Belum ada siswa yang mengumpulkan.', style: TextStyle(color: muted));
+
+    final allScores = <double>[];
+    for (final e in matrix.entries) {
+      for (final tid in todos) {
+        final g = ((e.value as Map)['grades'] as Map)[tid['id']?.toString()] as Map?;
+        final sc = g?['score'];
+        if (sc != null) allScores.add((sc as num).toDouble());
+      }
+    }
+    final avg = allScores.isEmpty ? '-' : (allScores.reduce((a, b) => a + b) / allScores.length).toStringAsFixed(1);
+    final sorted = List<double>.from(allScores)..sort();
+    final highest = sorted.isEmpty ? '-' : sorted.last.toStringAsFixed(1);
+    final lowest = sorted.isEmpty ? '-' : sorted.first.toStringAsFixed(1);
+    final totalP = matrix.length * todos.length;
+    final pct = totalP == 0 ? '0%' : '${(allScores.length / totalP * 100).toStringAsFixed(0)}%';
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Wrap(spacing: 10, runSpacing: 10, children: [
+        _statChip('Rata-rata', avg, TalogColors.info),
+        _statChip('Tertinggi', highest, TalogColors.success),
+        _statChip('Terendah', lowest, TalogColors.danger),
+        _statChip('% Kumpul', pct, TalogColors.accentOrange),
+      ]),
+      const SizedBox(height: 16),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          headingRowColor: WidgetStateProperty.all(TalogColors.lightCanvas),
+          headingTextStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: TalogColors.textHeading),
+          dataTextStyle: const TextStyle(fontSize: 12, color: TalogColors.textBody),
+          columnSpacing: 16,
+          columns: [
+            const DataColumn(label: Text('Nama Siswa')),
+            ...todos.map((t) => DataColumn(label: SizedBox(width: 90, child: Text(t['name']?.toString() ?? 'Tugas', maxLines: 2, overflow: TextOverflow.ellipsis)))),
+            const DataColumn(label: Text('Rata-rata')),
+            const DataColumn(label: Text('Kumpul')),
+          ],
+          rows: matrix.entries.map((entry) {
+            final sd = entry.value as Map<String, dynamic>;
+            final grades = sd['grades'] as Map<String, dynamic>;
+            final scores = <double>[];
+            int collected = 0;
+            final cells = todos.map((t) {
+              final g = grades[t['id']?.toString()] as Map<String, dynamic>?;
+              if (g == null) return DataCell(Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: const Color(0xfff0f0f0), borderRadius: BorderRadius.circular(4)), child: const Text('—', style: TextStyle(color: muted, fontSize: 11))));
+              collected++;
+              final sc = g['score'];
+              if (sc != null) scores.add((sc as num).toDouble());
+              final src = g['source']?.toString() ?? 'manual';
+              final nr = g['needs_review'] == true;
+              final scNum = sc != null ? (sc as num).toDouble() : null;
+              final cellColor = scNum == null ? TalogColors.info.withValues(alpha: 0.1) : scNum >= 75 ? TalogColors.success.withValues(alpha: 0.1) : scNum >= 60 ? TalogColors.warning.withValues(alpha: 0.1) : TalogColors.danger.withValues(alpha: 0.1);
+              final textColor = scNum == null ? TalogColors.info : scNum >= 75 ? TalogColors.success : scNum >= 60 ? TalogColors.warning : TalogColors.danger;
+              return DataCell(Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: cellColor, borderRadius: BorderRadius.circular(4)), child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(sc?.toString() ?? '✓', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: textColor)),
+                if (src == 'ai') ...[const SizedBox(width: 3), const Icon(Icons.psychology, size: 10, color: Colors.purple)],
+                if (nr) ...[const SizedBox(width: 3), Icon(Icons.edit_note, size: 10, color: Colors.orange.shade600)],
+              ])));
+            }).toList();
+            final sAvg = scores.isEmpty ? '—' : (scores.reduce((a, b) => a + b) / scores.length).toStringAsFixed(1);
+            return DataRow(cells: [
+              DataCell(SizedBox(width: 140, child: Text(sd['full_name']?.toString() ?? 'Siswa', style: const TextStyle(fontWeight: FontWeight.w600)))),
+              ...cells,
+              DataCell(Text(sAvg, style: const TextStyle(fontWeight: FontWeight.w700))),
+              DataCell(Text('$collected/${todos.length}')),
+            ]);
+          }).toList(),
+        ),
+      ),
+      const SizedBox(height: 8),
+      const Text('🤖 = AI  •  ✏️ = perlu tinjau  •  — = belum kumpul', style: TextStyle(fontSize: 10, color: muted)),
+    ]);
+  }
+
+  @override
+  Widget build(BuildContext context) => Panel(
+    title: 'REKAP NILAI',
+    heading: 'Matriks Nilai Siswa',
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // ── Filter jurusan + pilih tugas + ekspor ──────────────────────────────
+      LayoutBuilder(builder: (ctx, constraints) {
+        final wide = constraints.maxWidth > 540;
+        final deptFilter = _departments.isEmpty ? const SizedBox.shrink() : DropdownButtonFormField<String>(
+          initialValue: _selectedDeptId,
+          decoration: const InputDecoration(labelText: 'Filter Jurusan', border: OutlineInputBorder(), isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+          hint: const Text('Semua Jurusan'),
+          items: [
+            const DropdownMenuItem(value: null, child: Text('Semua Jurusan')),
+            ..._departments.map((d) => DropdownMenuItem(value: d['id']?.toString(), child: Text('${d['code']} - ${d['name']}'))),
+          ],
+          onChanged: (v) async {
+              setState(() => _selectedDeptId = v);
+              await _loadTodos();
+              _loadRecap();
+            },
+        );
+        final exportBtn = FilledButton.icon(
+          onPressed: _recap == null ? null : _exportCsv,
+          icon: const Icon(Icons.download, size: 16),
+          label: Text('Ekspor CSV${_selectedTodoIds.length < _allTodos.length && _allTodos.isNotEmpty ? ' (${_selectedTodoIds.length} tugas)' : ''}'),
+          style: FilledButton.styleFrom(backgroundColor: TalogColors.success, foregroundColor: Colors.white),
+        );
+        if (wide) return Row(children: [Expanded(child: deptFilter), const SizedBox(width: 12), exportBtn]);
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [deptFilter, const SizedBox(height: 10), exportBtn]);
+      }),
+      // ── Pilih tugas untuk matriks & ekspor ────────────────────────────────
+      if (_allTodos.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xfff4f6fb),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xffe0e6f0)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text('Pilih Tugas:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: ink)),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => setState(() => _selectedTodoIds = _allTodos.map((t) => t['id']?.toString() ?? '').where((id) => id.isNotEmpty).toSet()),
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                    child: const Text('Pilih Semua', style: TextStyle(fontSize: 11)),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () => setState(() => _selectedTodoIds = {}),
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                    child: const Text('Kosongkan', style: TextStyle(fontSize: 11, color: muted)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: _allTodos.map((t) {
+                  final tid = t['id']?.toString() ?? '';
+                  final tName = t['name']?.toString() ?? 'Tugas';
+                  final selected = _selectedTodoIds.contains(tid);
+                  return FilterChip(
+                    label: Text(tName, style: TextStyle(fontSize: 11, color: selected ? Colors.white : ink)),
+                    selected: selected,
+                    onSelected: (val) => setState(() {
+                      if (val) { _selectedTodoIds.add(tid); } else { _selectedTodoIds.remove(tid); }
+                    }),
+                    backgroundColor: const Color(0xffe7eaf1),
+                    selectedColor: TalogColors.primaryNavy,
+                    checkmarkColor: Colors.white,
+                    showCheckmark: true,
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+      ],
+      const SizedBox(height: 16),
+      if (_loading) const LinearProgressIndicator()
+      else if (_error != null) _RefreshMessage(message: _error!, onRefresh: _loadRecap)
+      else if (_recap == null) const Text('Memuat...', style: TextStyle(color: muted))
+      else _buildTable(_recap!),
+    ]),
+  );
+}
+
+class AiSettingsPanel extends StatefulWidget {
+  const AiSettingsPanel({super.key});
+  @override
+  State<AiSettingsPanel> createState() => _AiSettingsPanelState();
+}
+
+class _AiSettingsPanelState extends State<AiSettingsPanel> {
+  bool _aiEnabled = true;
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (!mounted) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      final enabled = await DashboardService(supabase).fetchAiEnabled();
+      if (!mounted) return;
+      setState(() { _aiEnabled = enabled; _loading = false; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = 'Gagal memuat pengaturan: $e'; _loading = false; });
+    }
+  }
+
+  Future<void> _toggle(bool value) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await DashboardService(supabase).setAiEnabled(enabled: value);
+      await AuthService(supabase).logAudit(
+        action: value ? 'AI_GRADING_ENABLED' : 'AI_GRADING_DISABLED',
+        description: 'Fitur penilaian AI ${value ? "diaktifkan" : "dinonaktifkan"} oleh admin',
+      );
+      if (!mounted) return;
+      setState(() { _aiEnabled = value; _saving = false; });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fitur AI ${value ? "diaktifkan" : "dinonaktifkan"}.')));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Panel(
+    title: 'PENGATURAN AI',
+    heading: 'Konfigurasi Penilaian Otomatis',
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (_loading) const LinearProgressIndicator()
+      else if (_error != null) _RefreshMessage(message: _error!, onRefresh: _load)
+      else ...[
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _aiEnabled ? TalogColors.success.withValues(alpha: 0.06) : const Color(0xfff8f9fe),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _aiEnabled ? TalogColors.success.withValues(alpha: 0.25) : TalogColors.border),
+          ),
+          child: Row(children: [
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: _aiEnabled ? TalogColors.success.withValues(alpha: 0.12) : TalogColors.lightCanvasSecondary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(_aiEnabled ? Icons.psychology : Icons.psychology_outlined, color: _aiEnabled ? TalogColors.success : muted, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Penilaian AI (Gemini)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: _aiEnabled ? ink : muted)),
+              const SizedBox(height: 2),
+              Text(_aiEnabled ? 'Aktif — Guru dapat menilai esai dengan AI' : 'Nonaktif — Tombol AI disembunyikan dari guru', style: const TextStyle(fontSize: 12, color: muted)),
+            ])),
+            const SizedBox(width: 12),
+            _saving
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                : Switch(value: _aiEnabled, onChanged: _toggle, activeThumbColor: TalogColors.success),
+          ]),
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.amber.shade200)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.info_outline, size: 16, color: Colors.amber.shade700),
+            const SizedBox(width: 8),
+            Expanded(child: Text(
+              'Pengaturan ini mengontrol apakah tombol "Nilai Esai dengan AI" muncul di dashboard guru. Pastikan secret LLM_API_KEY sudah diset di Supabase Edge Functions dengan Gemini API key.',
+              style: TextStyle(fontSize: 12, color: Colors.amber.shade800, height: 1.4),
+            )),
+          ]),
+        ),
+      ],
+    ]),
+  );
 }
 
 class AuditLogsPanel extends StatefulWidget {
@@ -3128,134 +4048,63 @@ class AuditLogsPanel extends StatefulWidget {
 
 class _AuditLogsPanelState extends State<AuditLogsPanel> {
   late Future<List<Map<String, dynamic>>> future;
-  bool _cleared = false;
 
   @override
   void initState() {
     super.initState();
-    debugPrint('MOUNT AuditLogsPanel instance=${identityHashCode(this)}');
-    refresh();
+    future = AuthService(supabase).getAuditLogs();
+  }
+
+  void refresh() {
+    setState(() => future = AuthService(supabase).getAuditLogs());
   }
 
   @override
-  void dispose() {
-    debugPrint('DISPOSE AuditLogsPanel instance=${identityHashCode(this)}');
-    super.dispose();
-  }
-
-  Future<void> refresh() async {
-    if (!mounted) return;
-    debugPrint(
-      'REFRESH AuditLogsPanel instance=${identityHashCode(this)} start',
-    );
-
-    final nextFuture = AuthService(supabase).getAuditLogs(limit: 50);
-
-    if (!mounted) return;
-
-    setState(() {
-      _cleared = false;
-      future = nextFuture;
-    });
-  }
-
-  Future<void> clearLocalLogs() async {
-    if (!mounted) return;
-    setState(() {
-      _cleared = true;
-      future = Future.value(const <Map<String, dynamic>>[]);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    debugPrint('BUILD AuditLogsPanel instance=${identityHashCode(this)}');
-    return Panel(
-      title: 'SECURITY & AUDIT LOG',
-      heading: 'Jejak Audit Aktivitas',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _cleared ? 'Daftar audit dibersihkan dari tampilan.' : 'Jejak aktivitas terbaru',
-                  style: const TextStyle(fontSize: 12, color: muted),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: refresh,
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Refresh'),
-              ),
-              TextButton.icon(
-                onPressed: clearLocalLogs,
-                icon: const Icon(Icons.clear_all, size: 16),
-                label: const Text('Bersihkan'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const LinearProgressIndicator();
-          }
-          if (snapshot.hasError) {
-            return _RefreshMessage(
-              message: AuthService.formatAuditError(
-                snapshot.error ?? 'Gagal memuat aktivitas audit.',
-              ),
-              onRefresh: refresh,
-            );
-          }
-          final list = snapshot.data ?? const [];
-          if (list.isEmpty) {
-            return const Text(
-              'Belum ada aktivitas audit.',
-              style: TextStyle(color: muted),
-            );
-          }
-          return ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: list.length,
-            separatorBuilder: (context, index) => const Divider(),
-            itemBuilder: (context, index) {
-              final item = list[index];
-              final action = item['action']?.toString() ?? 'ACTION';
-              final desc = item['description']?.toString() ?? '-';
-              final role = item['actor_role']?.toString() ?? 'SYSTEM';
-              final time =
-                  item['created_at']?.toString().split('.').first ?? '';
-
-              return ListTile(
-                leading: Icon(
-                  action.contains('ROLE') ? Icons.security : Icons.history,
-                  color: violet,
-                ),
-                title: Text(
-                  '$action ($role)',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-                subtitle: Text(desc, style: const TextStyle(fontSize: 12)),
-                trailing: Text(
-                  time,
-                  style: const TextStyle(color: muted, fontSize: 11),
-                ),
-              );
-            },
+  Widget build(BuildContext context) => Panel(
+    title: 'SECURITY & AUDIT LOG',
+    heading: 'Jejak Audit Aktivitas',
+    child: FutureBuilder<List<Map<String, dynamic>>>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const LinearProgressIndicator();
+        }
+        if (snapshot.hasError) {
+          return _RefreshMessage(
+            message: AuthService.formatAuditError(snapshot.error ?? 'Gagal memuat aktivitas audit.'),
+            onRefresh: refresh,
           );
-        },
-      ),
-    ]),
-    );
-  }
+        }
+        final list = snapshot.data ?? const [];
+        if (list.isEmpty) {
+          return const Text('Belum ada aktivitas audit.', style: TextStyle(color: muted));
+        }
+        return ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: list.length,
+          separatorBuilder: (context, index) => const Divider(),
+          itemBuilder: (context, index) {
+            final item = list[index];
+            final action = item['action']?.toString() ?? 'ACTION';
+            final desc = item['description']?.toString() ?? '-';
+            final role = item['actor_role']?.toString() ?? 'SYSTEM';
+            final time = item['created_at']?.toString().split('.').first ?? '';
+
+            return ListTile(
+              leading: Icon(
+                action.contains('ROLE') ? Icons.security : Icons.history,
+                color: violet,
+              ),
+              title: Text('$action ($role)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              subtitle: Text(desc, style: const TextStyle(fontSize: 12)),
+              trailing: Text(time, style: const TextStyle(color: muted, fontSize: 11)),
+            );
+          },
+        );
+      },
+    ),
+  );
 }
 
 class LiveUpdatePage extends StatelessWidget {
@@ -3293,12 +4142,11 @@ class LiveStaffActivity extends StatefulWidget {
 class _LiveStaffActivityState extends State<LiveStaffActivity> {
   late Future<List<Map<String, dynamic>>> future;
   late final List<RealtimeChannel> channels;
-  bool _cleared = false;
 
   @override
   void initState() {
     super.initState();
-    refresh();
+    future = DashboardService(supabase).fetchStaffSubmissions();
     final service = DashboardService(supabase);
     channels = [
       service.watchTable(
@@ -3318,21 +4166,8 @@ class _LiveStaffActivityState extends State<LiveStaffActivity> {
     ];
   }
 
-  Future<void> refresh() async {
-    final nextFuture = DashboardService(supabase).fetchStaffSubmissions();
-    if (!mounted) return;
-    setState(() {
-      _cleared = false;
-      future = nextFuture;
-    });
-  }
-
-  Future<void> clearLocalUpdates() async {
-    if (!mounted) return;
-    setState(() {
-      _cleared = true;
-      future = Future.value(const <Map<String, dynamic>>[]);
-    });
+  void refresh() {
+    setState(() => future = DashboardService(supabase).fetchStaffSubmissions());
   }
 
   @override
@@ -3344,77 +4179,41 @@ class _LiveStaffActivityState extends State<LiveStaffActivity> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _cleared ? 'Daftar aktivitas dibersihkan dari tampilan.' : 'Aktivitas terbaru',
-                  style: const TextStyle(fontSize: 12, color: muted),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: refresh,
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Refresh'),
-              ),
-              TextButton.icon(
-                onPressed: clearLocalUpdates,
-                icon: const Icon(Icons.clear_all, size: 16),
-                label: const Text('Bersihkan'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: future,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const LinearProgressIndicator();
-              }
-              if (snapshot.hasError) {
-                return _RefreshMessage(
-                  message: 'Gagal memuat live update: ${snapshot.error}',
-                  onRefresh: refresh,
-                );
-              }
-              final list = snapshot.data ?? const [];
-              if (list.isEmpty) {
-                return const Text(
-                  'Belum ada aktivitas terbaru.',
-                  style: TextStyle(color: muted),
-                );
-              }
-              return Column(
-                children: list.map((submission) {
-                  final student = submission['students'];
-                  final profile = student is Map ? student['profiles'] : null;
-                  final studentName = profile is Map
-                      ? profile['full_name']?.toString()
-                      : 'Siswa';
-                  final todo = submission['todos'];
-                  final taskName = todo is Map ? todo['name']?.toString() : 'Tugas';
-                  final grades = submission['grades'];
-                  final score = grades is Map ? grades['score']?.toString() : null;
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text('$studentName - $taskName'),
-                    subtitle: Text(
-                      'Dikirim: ${_readableDate(submission['submitted_at'])}',
-                    ),
-                    trailing: Text(
-                      score == null ? 'Belum dinilai' : 'Nilai: $score',
-                    ),
-                  );
-                }).toList(),
-              );
-            },
-          ),
-        ],
+  Widget build(BuildContext context) => FutureBuilder<List<Map<String, dynamic>>>(
+    future: future,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const LinearProgressIndicator();
+      }
+      if (snapshot.hasError) {
+        return _RefreshMessage(
+          message: 'Gagal memuat live update: ${snapshot.error}',
+          onRefresh: refresh,
+        );
+      }
+      final list = snapshot.data ?? const [];
+      if (list.isEmpty) {
+        return const Text('Belum ada aktivitas terbaru.', style: TextStyle(color: muted));
+      }
+      return Column(
+        children: list.map((submission) {
+          final student = submission['students'];
+          final profile = student is Map ? student['profiles'] : null;
+          final studentName = profile is Map ? profile['full_name']?.toString() ?? 'Siswa' : 'Siswa';
+          final todo = submission['todos'];
+          final taskName = todo is Map ? todo['name']?.toString() ?? 'Tugas' : 'Tugas';
+          final grades = submission['grades'];
+          final score = grades is Map ? grades['score']?.toString() : null;
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text('$studentName - $taskName'),
+            subtitle: Text('Dikirim: ${_readableDate(submission['submitted_at'])}'),
+            trailing: Text(score == null ? 'Belum dinilai' : 'Nilai: $score'),
+          );
+        }).toList(),
       );
+    },
+  );
 }
 
 class Shell extends StatefulWidget {
@@ -3428,7 +4227,6 @@ class Shell extends StatefulWidget {
     this.onNavSelected,
     this.selectedTabIndex = 0,
     this.isStaffPreview = false,
-    this.onProfileUpdated,
   });
   final String title, heading, subtitle;
   final List<Widget> children;
@@ -3436,46 +4234,13 @@ class Shell extends StatefulWidget {
   final void Function(int)? onNavSelected;
   final int selectedTabIndex;
   final bool isStaffPreview;
-  final void Function(UserProfile updatedProfile)? onProfileUpdated;
 
   @override
   State<Shell> createState() => _ShellState();
 }
 
 class _ShellState extends State<Shell> {
-  late UserProfile _profile;
-  Timer? _themeTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _profile =
-        widget.profile ??
-        const UserProfile(
-          id: '',
-          fullName: '',
-          email: '',
-          role: UserRole.student,
-          status: 'active',
-        );
-    _themeTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) {
-        setState(() {});
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _themeTimer?.cancel();
-    super.dispose();
-  }
-
-  void _handleNavigation(
-    BuildContext context,
-    int index,
-    int destinationCount,
-  ) {
+  void _handleNavigation(BuildContext context, int index, int destinationCount) {
     if (widget.onNavSelected != null) {
       widget.onNavSelected!(index);
     } else if (Navigator.canPop(context)) {
@@ -3483,14 +4248,8 @@ class _ShellState extends State<Shell> {
     }
   }
 
-  Widget _buildDrawer(
-    BuildContext context,
-    List<NavigationRailDestination> destinations,
-  ) {
-    final selectedIndex = widget.selectedTabIndex.clamp(
-      0,
-      destinations.length - 1,
-    );
+  Widget _buildDrawer(BuildContext context, List<NavigationRailDestination> destinations) {
+    final selectedIndex = widget.selectedTabIndex.clamp(0, destinations.length - 1);
     return Drawer(
       child: SafeArea(
         child: Column(
@@ -3520,9 +4279,7 @@ class _ShellState extends State<Shell> {
                   return ListTile(
                     selected: selected,
                     selectedTileColor: const Color(0xffeef0ff),
-                    leading: selected
-                        ? destination.selectedIcon
-                        : destination.icon,
+                    leading: selected ? destination.selectedIcon : destination.icon,
                     title: destination.label,
                     onTap: () {
                       Navigator.pop(context);
@@ -3533,40 +4290,30 @@ class _ShellState extends State<Shell> {
               ),
             ),
             const Divider(height: 1),
-            if (!widget.isStaffPreview) ...[
-              ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: const Text('Profil & Username'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showProfileSettingsDialog();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.lock_outline),
-                title: const Text('Ganti Password'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showChangePasswordDialog();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: const Text('Keluar'),
-                onTap: () {
-                  Navigator.pop(context);
-                  AuthService(supabase).signOut();
-                },
-              ),
-            ] else ...[
-              ListTile(
-                leading: const Icon(Icons.arrow_back),
-                title: const Text('Kembali ke Dashboard Admin'),
-                onTap: () {
-                  Navigator.pop(context);
-                },
-              ),
-            ],
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: const Text('Profil & Username'),
+              onTap: () {
+                Navigator.pop(context);
+                _showProfileSettingsDialog();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('Ganti Password'),
+              onTap: () {
+                Navigator.pop(context);
+                _showChangePasswordDialog();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Keluar'),
+              onTap: () {
+                Navigator.pop(context);
+                AuthService(supabase).signOut();
+              },
+            ),
           ],
         ),
       ),
@@ -3582,10 +4329,8 @@ class _ShellState extends State<Shell> {
 
   void _showProfileSettingsDialog() {
     if (widget.profile == null) return;
-    final nameController = TextEditingController(text: _profile.fullName);
-    final usernameController = TextEditingController(
-      text: _profile.username ?? '',
-    );
+    final nameController = TextEditingController(text: widget.profile!.fullName);
+    final usernameController = TextEditingController(text: widget.profile!.username ?? '');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -3594,14 +4339,8 @@ class _ShellState extends State<Shell> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Email: ${_profile.email}',
-              style: const TextStyle(color: muted),
-            ),
-            Text(
-              'Role: ${_profile.role.name.toUpperCase()}',
-              style: const TextStyle(color: muted),
-            ),
+            Text('Email: ${widget.profile!.email}', style: const TextStyle(color: muted)),
+            Text('Role: ${widget.profile!.role.name.toUpperCase()}', style: const TextStyle(color: muted)),
             const SizedBox(height: 16),
             TextField(
               controller: nameController,
@@ -3618,39 +4357,21 @@ class _ShellState extends State<Shell> {
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
           FilledButton(
             onPressed: () async {
               Navigator.pop(ctx);
               try {
                 await AuthService(supabase).updateProfile(
-                  userId: _profile.id,
+                  userId: widget.profile!.id,
                   fullName: nameController.text.trim(),
                   username: usernameController.text.trim(),
                 );
-                if (!mounted) return;
-                final updatedProfile = UserProfile(
-                  id: _profile.id,
-                  fullName: nameController.text.trim().isNotEmpty
-                      ? nameController.text.trim()
-                      : _profile.fullName,
-                  email: _profile.email,
-                  role: _profile.role,
-                  status: _profile.status,
-                  username: usernameController.text.trim().isNotEmpty
-                      ? usernameController.text.trim()
-                      : _profile.username,
-                );
-                setState(() {
-                  _profile = updatedProfile;
-                });
-                widget.onProfileUpdated?.call(updatedProfile);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Profil berhasil diperbarui.')),
-                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Profil berhasil diperbarui. Muat ulang untuk melihat perubahan.')),
+                  );
+                }
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -3668,54 +4389,68 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
-    final role = _profile.role;
-    debugPrint('[ROLE TRACE] Shell mounted role=${role.name}');
-    debugPrint('[TEACHER TRACE] build: Shell');
+    final role = widget.profile?.role;
     final navigationRole = widget.isStaffPreview ? UserRole.student : role;
-    final isStaff =
-        role == UserRole.teacher ||
-        role == UserRole.admin ||
-        role == UserRole.superadmin;
+    final isStaff = role == UserRole.teacher || role == UserRole.admin || role == UserRole.superadmin;
     final isStudent = role == UserRole.student;
-    final canManageTasks = role == UserRole.teacher || role == UserRole.admin;
-    final canManageUsers =
-        role == UserRole.admin || role == UserRole.superadmin;
-    final timeTheme = DashboardTimeThemeSpec.resolve(DateTime.now());
+    final canManageUsers = role == UserRole.admin || role == UserRole.superadmin;
+    final isNight = isNightTime();
     final isCompact = MediaQuery.sizeOf(context).width < 700;
 
     final destinations = <NavigationRailDestination>[
       NavigationRailDestination(
         icon: Icon(Icons.dashboard_outlined),
         selectedIcon: Icon(Icons.dashboard),
-        label: Text(
-          navigationRole == UserRole.student ? 'Dashboard' : 'Overview',
-        ),
+        label: Text(navigationRole == UserRole.student ? 'Dashboard' : 'Overview'),
       ),
       if (isStaff && !widget.isStaffPreview) ...[
-        if (canManageTasks)
+        if (role != UserRole.superadmin)
           const NavigationRailDestination(
             icon: Icon(Icons.assignment_outlined),
             selectedIcon: Icon(Icons.assignment),
             label: Text('Tugas'),
           ),
-        if (role == UserRole.teacher || role == UserRole.admin)
+        if (role == UserRole.teacher) ...[
           const NavigationRailDestination(
             icon: Icon(Icons.rate_review_outlined),
             selectedIcon: Icon(Icons.rate_review),
             label: Text('Pengumpulan'),
           ),
-        if (canManageUsers)
+          const NavigationRailDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: Text('Rekap Nilai'),
+          ),
+        ],
+        if (canManageUsers) ...[
           const NavigationRailDestination(
             icon: Icon(Icons.people_outline),
             selectedIcon: Icon(Icons.people),
             label: Text('Pengguna'),
           ),
-        if (role == UserRole.superadmin)
           const NavigationRailDestination(
-            icon: Icon(Icons.security_outlined),
-            selectedIcon: Icon(Icons.security),
-            label: Text('Audit Log'),
+            icon: Icon(Icons.manage_accounts_outlined),
+            selectedIcon: Icon(Icons.manage_accounts),
+            label: Text('Kelola Akun'),
           ),
+          const NavigationRailDestination(
+            icon: Icon(Icons.psychology_outlined),
+            selectedIcon: Icon(Icons.psychology),
+            label: Text('Pengaturan AI'),
+          ),
+          if (role == UserRole.superadmin) ...[
+            const NavigationRailDestination(
+              icon: Icon(Icons.security_outlined),
+              selectedIcon: Icon(Icons.security),
+              label: Text('Audit Log'),
+            ),
+            const NavigationRailDestination(
+              icon: Icon(Icons.dynamic_feed_outlined),
+              selectedIcon: Icon(Icons.dynamic_feed),
+              label: Text('Live Update'),
+            ),
+          ],
+        ],
       ] else ...[
         const NavigationRailDestination(
           icon: Icon(Icons.task_alt),
@@ -3732,32 +4467,28 @@ class _ShellState extends State<Shell> {
     ];
 
     return Scaffold(
-      backgroundColor: timeTheme.background,
+      backgroundColor: isNight ? const Color(0xff0a1020) : const Color(0xfff4f6fb),
       appBar: isCompact
           ? AppBar(
-              backgroundColor: timeTheme.appBar,
+              backgroundColor: isNight ? const Color(0xff060d1a) : const Color(0xFF0D2451),
               foregroundColor: Colors.white,
-              title: Text(
-                widget.title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              elevation: 0,
+              shadowColor: Colors.transparent,
+              title: Text(widget.title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 0.3)),
               actions: [
                 if (widget.profile != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 16),
                     child: Center(
                       child: Text(
-                        _profile.displayName,
+                        widget.profile!.displayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 12),
                       ),
                     ),
                   ),
-                if (isStudent && !widget.isStaffPreview)
+                if (isStudent)
                   IconButton(
                     tooltip: 'Keluar',
                     icon: const Icon(Icons.logout),
@@ -3770,167 +4501,124 @@ class _ShellState extends State<Shell> {
       body: SafeArea(
         child: Row(
           children: [
-            if (!isCompact)
-              NavigationRail(
-                backgroundColor: timeTheme.appBar,
-                unselectedIconTheme: const IconThemeData(color: Colors.white60),
-                selectedIconTheme: const IconThemeData(color: Colors.white),
-                unselectedLabelTextStyle: const TextStyle(
-                  color: Colors.white60,
-                ),
-                selectedLabelTextStyle: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-                destinations: destinations,
-                selectedIndex: widget.selectedTabIndex.clamp(
-                  0,
-                  destinations.length - 1,
-                ),
-                onDestinationSelected: (i) =>
-                    _handleNavigation(context, i, destinations.length),
-                trailing: Expanded(
-                  child: Align(
-                    alignment: Alignment.bottomCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (isStaff && !widget.isStaffPreview)
-                            IconButton(
-                              tooltip: 'Buka Student Dashboard',
-                              icon: const Icon(Icons.school, color: cyan),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => StudentPage(
-                                      profile: widget.profile!,
-                                      isStaffPreview: true,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          if (!widget.isStaffPreview) ...[
-                            IconButton(
-                              tooltip: 'Profil & Username',
-                              icon: const Icon(
-                                Icons.person_outline,
-                                color: Colors.white70,
+          if (!isCompact) NavigationRail(
+            backgroundColor: isNight ? const Color(0xff060d1a) : const Color(0xFF0D2451),
+            unselectedIconTheme: const IconThemeData(color: Colors.white38, size: 22),
+            selectedIconTheme: const IconThemeData(color: Colors.white, size: 22),
+            unselectedLabelTextStyle: const TextStyle(color: Colors.white38, fontSize: 11),
+            selectedLabelTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 11),
+            indicatorColor: Colors.white12,
+            destinations: destinations,
+            selectedIndex: widget.selectedTabIndex.clamp(0, destinations.length - 1),
+            onDestinationSelected: (i) => _handleNavigation(context, i, destinations.length),
+            trailing: Expanded(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isStaff && !widget.isStaffPreview)
+                        IconButton(
+                          tooltip: 'Buka Student Dashboard',
+                          icon: const Icon(Icons.school, color: cyan),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => StudentPage(
+                                  profile: widget.profile!,
+                                  isStaffPreview: true,
+                                ),
                               ),
-                              onPressed: _showProfileSettingsDialog,
-                            ),
-                            IconButton(
-                              tooltip: 'Ganti Password',
-                              icon: const Icon(
-                                Icons.lock_outline,
-                                color: Colors.white70,
-                              ),
-                              onPressed: _showChangePasswordDialog,
-                            ),
-                            const SizedBox(height: 8),
-                            IconButton(
-                              tooltip: 'Keluar',
-                              icon: const Icon(
-                                Icons.logout,
-                                color: Colors.white70,
-                              ),
-                              onPressed: () => AuthService(supabase).signOut(),
-                            ),
-                          ] else ...[
-                            const SizedBox(height: 8),
-                            IconButton(
-                              tooltip: 'Kembali ke Dashboard Admin',
-                              icon: const Icon(
-                                Icons.arrow_back,
-                                color: Colors.white70,
-                              ),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
+                            );
+                          },
+                        ),
+                      if (!widget.isStaffPreview) ...[
+                        IconButton(
+                          tooltip: 'Profil & Username',
+                          icon: const Icon(Icons.person_outline, color: Colors.white70),
+                          onPressed: _showProfileSettingsDialog,
+                        ),
+                        IconButton(
+                          tooltip: 'Ganti Password',
+                          icon: const Icon(Icons.lock_outline, color: Colors.white70),
+                          onPressed: _showChangePasswordDialog,
+                        ),
+                        const SizedBox(height: 8),
+                        IconButton(
+                          tooltip: 'Keluar',
+                          icon: const Icon(Icons.logout, color: Colors.white70),
+                          onPressed: () => AuthService(supabase).signOut(),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(isCompact ? 16 : 36),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (!isCompact)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Brand(
-                            light:
-                                timeTheme.category ==
-                                DashboardTimeCategory.night,
-                          ),
-                          if (widget.profile != null)
-                            Row(
-                              children: [
-                                if (widget.isStaffPreview)
-                                  Container(
-                                    margin: const EdgeInsets.only(right: 12),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.amber.shade200,
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: const Text(
-                                      'PREVIEW MODE',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                  ),
-                                Text(
-                                  '${_profile.displayName}  •  ${_profile.role.name.toUpperCase()}',
-                                  style: TextStyle(
-                                    color: timeTheme.muted,
-                                    fontSize: 12,
-                                  ),
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.all(isCompact ? 16 : 36),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!isCompact) Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Brand(light: isNight),
+                      if (widget.profile != null)
+                        Row(
+                          children: [
+                            if (widget.isStaffPreview)
+                              Container(
+                                margin: const EdgeInsets.only(right: 12),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade200,
+                                  borderRadius: BorderRadius.circular(6),
                                 ),
-                              ],
+                                child: const Text(
+                                  'PREVIEW MODE',
+                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black87),
+                                ),
+                              ),
+                            Text(
+                              '${widget.profile!.displayName}  •  ${widget.profile!.role.name.toUpperCase()}',
+                              style: TextStyle(color: isNight ? Colors.white70 : muted, fontSize: 12),
                             ),
-                        ],
-                      ),
-                    SizedBox(height: isCompact ? 12 : 38),
-                    LabelText(widget.title),
-                    const SizedBox(height: 12),
-                    Text(
-                      widget.heading,
-                      style: TextStyle(
-                        color: timeTheme.text,
-                        fontSize: 30,
-                        fontWeight: FontWeight.w800,
+                          ],
+                        ),
+                    ],
+                  ),
+                  SizedBox(height: isCompact ? 12 : 38),
+                  LabelText(widget.title),
+                  const SizedBox(height: 12),
+                  Text(
+                    widget.heading,
+                    style: TextStyle(
+                      color: isNight ? Colors.white : ink,
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (widget.subtitle.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        widget.subtitle,
+                        style: TextStyle(color: isNight ? Colors.white60 : muted),
                       ),
                     ),
-                    if (widget.subtitle.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          widget.subtitle,
-                          style: TextStyle(color: timeTheme.muted),
-                        ),
-                      ),
-                    const SizedBox(height: 30),
-                    ...widget.children,
-                  ],
-                ),
+                  const SizedBox(height: 30),
+                  ...widget.children,
+                ],
               ),
             ),
-          ],
+          ),
+        ],
         ),
       ),
     );
@@ -3947,13 +4635,12 @@ class _RefreshMessage extends StatelessWidget {
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
       Flexible(
-        child: Text(message, style: const TextStyle(color: muted)),
+        child: Text(
+          message,
+          style: const TextStyle(color: muted),
+        ),
       ),
-      IconButton(
-        onPressed: onRefresh,
-        tooltip: 'Muat ulang',
-        icon: const Icon(Icons.refresh),
-      ),
+      IconButton(onPressed: onRefresh, tooltip: 'Muat ulang', icon: const Icon(Icons.refresh)),
     ],
   );
 }
@@ -3969,38 +4656,46 @@ class Panel extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final timeTheme = DashboardTimeThemeSpec.resolve(DateTime.now());
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: timeTheme.panel,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: timeTheme.category == DashboardTimeCategory.night
-              ? const Color(0xff2e4668)
-              : const Color(0xffe7eaf1),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          LabelText(title),
-          const SizedBox(height: 8),
-          Text(
-            heading,
-            style: TextStyle(
-              color: timeTheme.text,
-              fontSize: 19,
-              fontWeight: FontWeight.w800,
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(22),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xffe7eaf1)),
+      boxShadow: const [
+        BoxShadow(color: Color(0x060F2B5C), blurRadius: 12, offset: Offset(0, 3)),
+        BoxShadow(color: Color(0x030F2B5C), blurRadius: 4, offset: Offset(0, 1)),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Container(
+            width: 3, height: 16,
+            decoration: BoxDecoration(
+              color: TalogColors.accentOrange,
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 16),
-          child,
-        ],
-      ),
-    );
-  }
+          const SizedBox(width: 8),
+          LabelText(title),
+        ]),
+        const SizedBox(height: 6),
+        Text(
+          heading,
+          style: const TextStyle(
+            color: ink,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.3,
+          ),
+        ),
+        const SizedBox(height: 16),
+        child,
+      ],
+    ),
+  );
 }
 
 class Task extends StatelessWidget {
@@ -4139,26 +4834,14 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
       setState(() => error = 'Konfirmasi password tidak cocok.');
       return;
     }
-    setState(() {
-      loading = true;
-      error = null;
-    });
+    setState(() { loading = true; error = null; });
     try {
       await AuthService(supabase).changePassword(password);
-      setState(() {
-        success = true;
-        loading = false;
-      });
+      setState(() { success = true; loading = false; });
     } on AuthException catch (e) {
-      setState(() {
-        error = e.message;
-        loading = false;
-      });
+      setState(() { error = e.message; loading = false; });
     } catch (_) {
-      setState(() {
-        error = 'Gagal mengganti password.';
-        loading = false;
-      });
+      setState(() { error = 'Gagal mengganti password.'; loading = false; });
     }
   }
 
@@ -4173,9 +4856,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Ganti Password'),
     content: success
-        ? const Text(
-            'Password berhasil diganti. Silakan gunakan password baru ini untuk login berikutnya.',
-          )
+        ? const Text('Password berhasil diganti. Silakan gunakan password baru ini untuk login berikutnya.')
         : Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -4188,36 +4869,20 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
               TextField(
                 controller: confirmController,
                 obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Konfirmasi password baru',
-                ),
+                decoration: const InputDecoration(labelText: 'Konfirmasi password baru'),
               ),
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
+                  child: Text(error!, style: const TextStyle(color: Colors.red)),
                 ),
             ],
           ),
     actions: success
-        ? [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Tutup'),
-            ),
-          ]
+        ? [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]
         : [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              onPressed: loading ? null : submit,
-              child: const Text('Simpan'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+            FilledButton(onPressed: loading ? null : submit, child: const Text('Simpan')),
           ],
   );
 }
@@ -4240,21 +4905,12 @@ class _ResetPasswordDialogState extends State<_ResetPasswordDialog> {
       setState(() => error = 'Masukkan alamat email yang valid.');
       return;
     }
-    setState(() {
-      loading = true;
-      error = null;
-    });
+    setState(() { loading = true; error = null; });
     try {
       await AuthService(supabase).resetPassword(email);
-      setState(() {
-        success = true;
-        loading = false;
-      });
+      setState(() { success = true; loading = false; });
     } catch (_) {
-      setState(() {
-        error = 'Gagal mengirim email reset password.';
-        loading = false;
-      });
+      setState(() { error = 'Gagal mengirim email reset password.'; loading = false; });
     }
   }
 
@@ -4262,15 +4918,11 @@ class _ResetPasswordDialogState extends State<_ResetPasswordDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Reset Password'),
     content: success
-        ? const Text(
-            'Link reset password telah dikirim ke email Anda. Periksa inbox.',
-          )
+        ? const Text('Link reset password telah dikirim ke email Anda. Periksa inbox.')
         : Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Masukkan email akun Anda. Kami akan mengirim link untuk mengatur ulang password.',
-              ),
+              const Text('Masukkan email akun Anda. Kami akan mengirim link untuk mengatur ulang password.'),
               const SizedBox(height: 16),
               TextField(
                 controller: widget.controller,
@@ -4280,29 +4932,338 @@ class _ResetPasswordDialogState extends State<_ResetPasswordDialog> {
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
+                  child: Text(error!, style: const TextStyle(color: Colors.red)),
                 ),
             ],
           ),
     actions: success
-        ? [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Tutup'),
-            ),
-          ]
+        ? [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]
         : [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              onPressed: loading ? null : submit,
-              child: const Text('Kirim'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+            FilledButton(onPressed: loading ? null : submit, child: const Text('Kirim')),
           ],
+  );
+}
+
+class PasswordRecoveryPage extends StatefulWidget {
+  const PasswordRecoveryPage({super.key});
+
+  @override
+  State<PasswordRecoveryPage> createState() => _PasswordRecoveryPageState();
+}
+
+class _PasswordRecoveryPageState extends State<PasswordRecoveryPage> {
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  String? _error;
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final newPw = _newPasswordController.text.trim();
+    final confirmPw = _confirmPasswordController.text.trim();
+    if (newPw.isEmpty || confirmPw.isEmpty) {
+      setState(() => _error = 'Password baru dan konfirmasi wajib diisi.');
+      return;
+    }
+    if (newPw != confirmPw) {
+      setState(() => _error = 'Konfirmasi password tidak cocok dengan password baru.');
+      return;
+    }
+    if (newPw.length < 6) {
+      setState(() => _error = 'Password baru minimal 6 karakter.');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await AuthService(supabase).changePassword(newPw);
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password berhasil diperbarui.')),
+        );
+        if (Navigator.canPop(context)) Navigator.pop(context);
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() { _error = e.message; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _error = 'Gagal memperbarui password.'; _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: SizedBox(
+          width: 420,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Brand(),
+              const SizedBox(height: 48),
+              const LabelText('KEAMANAN AKUN  /  01 / 01'),
+              const SizedBox(height: 18),
+              const Text(
+                'Buat Password Baru',
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w800,
+                  color: ink,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Masukkan password baru Anda di bawah ini.',
+                style: TextStyle(color: muted),
+              ),
+              const SizedBox(height: 28),
+              InputField(
+                label: 'Password baru',
+                hint: 'Minimal 6 karakter',
+                password: true,
+                controller: _newPasswordController,
+              ),
+              const SizedBox(height: 16),
+              InputField(
+                label: 'Konfirmasi password baru',
+                hint: 'Ulangi password baru',
+                password: true,
+                controller: _confirmPasswordController,
+              ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                ),
+              const SizedBox(height: 24),
+              ActionButton(
+                label: 'Simpan Password Baru',
+                onPressed: _loading ? null : _submit,
+                loading: _loading,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+// ── App Health Panel ─────────────────────────────────────────────────────────
+// Real-time health check: database ping, active connections, and basic error
+// detection. Uses Supabase itself as the data source — no fake numbers.
+class _AppHealthPanel extends StatefulWidget {
+  const _AppHealthPanel();
+
+  @override
+  State<_AppHealthPanel> createState() => _AppHealthPanelState();
+}
+
+class _AppHealthPanelState extends State<_AppHealthPanel> {
+  bool _loading = true;
+  String? _error;
+  int _dbPingMs = 0;
+  int _userCount = 0;
+  int _submissionCount = 0;
+  int _gradeCount = 0;
+  DateTime? _lastChecked;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+    // Refresh otomatis setiap 30 detik
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _check();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    if (!mounted) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      final sw = Stopwatch()..start();
+      // Ping database — query ringan untuk mengukur latensi
+      await supabase.from('profiles').select('id').limit(1);
+      sw.stop();
+      final pingMs = sw.elapsedMilliseconds;
+
+      // Ambil jumlah data secara paralel (ambil id saja, hitung length)
+      final counts = await Future.wait([
+        supabase.from('profiles').select('id').limit(500),
+        supabase.from('submissions').select('id').limit(500),
+        supabase.from('grades').select('id').limit(500),
+      ]);
+
+      if (!mounted) return;
+      setState(() {
+        _dbPingMs = pingMs;
+        _userCount = (counts[0] as List).length;
+        _submissionCount = (counts[1] as List).length;
+        _gradeCount = (counts[2] as List).length;
+        _lastChecked = DateTime.now();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Gagal memeriksa kesehatan sistem: ${e.toString().replaceAll('Exception: ', '')}';
+        _loading = false;
+      });
+    }
+  }
+
+  Color get _pingColor {
+    if (_dbPingMs < 200) return TalogColors.success;
+    if (_dbPingMs < 600) return TalogColors.warning;
+    return TalogColors.danger;
+  }
+
+  String get _pingLabel {
+    if (_dbPingMs < 200) return 'Sangat Cepat';
+    if (_dbPingMs < 600) return 'Normal';
+    return 'Lambat';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      title: 'KESEHATAN APLIKASI',
+      heading: 'Real-time System Health',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Spacer(),
+              if (_lastChecked != null)
+                Text(
+                  'Terakhir: ${_lastChecked!.hour.toString().padLeft(2,'0')}:${_lastChecked!.minute.toString().padLeft(2,'0')}:${_lastChecked!.second.toString().padLeft(2,'0')}',
+                  style: const TextStyle(fontSize: 11, color: muted),
+                ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Cek ulang sekarang',
+                icon: _loading
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh, size: 18),
+                onPressed: _loading ? null : _check,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: TalogColors.danger.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: TalogColors.danger.withValues(alpha: 0.3)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.error_outline, size: 16, color: TalogColors.danger),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_error!, style: const TextStyle(fontSize: 12, color: TalogColors.danger))),
+              ]),
+            ),
+          ] else ...[
+            const SizedBox(height: 12),
+            Wrap(spacing: 10, runSpacing: 10, children: [
+              _HealthChip(
+                icon: Icons.speed_outlined,
+                label: 'DB Latency',
+                value: _loading ? '...' : '${_dbPingMs}ms',
+                sub: _loading ? '' : _pingLabel,
+                color: _loading ? muted : _pingColor,
+              ),
+              _HealthChip(
+                icon: Icons.people_outline,
+                label: 'Total Pengguna',
+                value: _loading ? '...' : '$_userCount',
+                sub: 'terdaftar',
+                color: TalogColors.info,
+              ),
+              _HealthChip(
+                icon: Icons.upload_file_outlined,
+                label: 'Pengumpulan',
+                value: _loading ? '...' : '$_submissionCount',
+                sub: 'total',
+                color: violet,
+              ),
+              _HealthChip(
+                icon: Icons.grade_outlined,
+                label: 'Penilaian',
+                value: _loading ? '...' : '$_gradeCount',
+                sub: 'total',
+                color: cyan,
+              ),
+              _HealthChip(
+                icon: Icons.check_circle_outline,
+                label: 'Database',
+                value: _loading ? '...' : (_error == null ? 'Online' : 'Error'),
+                sub: 'Supabase',
+                color: _loading ? muted : (_error == null ? TalogColors.success : TalogColors.danger),
+              ),
+            ]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthChip extends StatelessWidget {
+  const _HealthChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.sub,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label, value, sub;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.07),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withValues(alpha: 0.25)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 10),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: color)),
+            Text('$label · $sub', style: const TextStyle(fontSize: 10, color: muted)),
+          ],
+        ),
+      ],
+    ),
   );
 }

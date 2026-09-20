@@ -179,8 +179,103 @@ async function updateStaffStatus(request: Request, client: SupabaseClient, actor
   return response(request, { user_id: target.id, status: body.status });
 }
 
+type CreateStudentBody = {
+  full_name?: string;
+  email?: string;
+  username?: string;
+  department_id?: string | null;
+  password?: string;
+  role?: string;
+};
+
+async function createStudent(request: Request, client: SupabaseClient, actor: { id: string; role: string }) {
+  const body = await request.json().catch(() => ({})) as CreateStudentBody;
+  const fullName = body.full_name?.trim() ?? '';
+  const email = normalizeEmail(body.email);
+  const username = body.username?.trim().toLowerCase() ?? '';
+  const password = body.password ?? '';
+  const departmentId = body.department_id ?? null;
+  const targetRole = body.role?.trim().toLowerCase() ?? 'student';
+
+  // Validasi
+  if (fullName.length < 2 || fullName.length > 160) return response(request, { error: 'full_name harus 2-160 karakter' }, 400);
+  if (!emailPattern.test(email)) return response(request, { error: 'Email tidak valid' }, 400);
+  if (!/^[a-z0-9_]{3,20}$/.test(username)) return response(request, { error: 'Username harus 3-20 karakter, hanya huruf kecil, angka, dan underscore' }, 400);
+  if (password.length < 8) return response(request, { error: 'Password minimal 8 karakter' }, 400);
+
+  // Izin: admin hanya bisa buat student, superadmin bisa buat student/teacher/admin
+  const allowedByActor = actor.role === 'superadmin'
+    ? ['student', 'teacher', 'admin', 'superadmin'].includes(targetRole)
+    : targetRole === 'student';
+  if (!allowedByActor) return response(request, { error: 'Anda tidak memiliki izin untuk membuat akun dengan role ini' }, 403);
+
+  // Cek duplikat email
+  const { data: existing } = await client.from('profiles').select('id').eq('email', email).maybeSingle();
+  if (existing) return response(request, { error: 'Email sudah terdaftar' }, 409);
+
+  // Cek duplikat username
+  const { data: existingUsername } = await client.from('profiles').select('id').eq('username', username).maybeSingle();
+  if (existingUsername) return response(request, { error: 'Username sudah digunakan' }, 409);
+
+  // Buat auth user
+  const { data: authUser, error: authError } = await client.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName, role: targetRole },
+  });
+  if (authError || !authUser.user) return response(request, { error: authError?.message ?? 'Gagal membuat akun' }, 400);
+
+  // Insert profiles
+  const { error: profileError } = await client.from('profiles').insert({
+    id: authUser.user.id,
+    email,
+    full_name: fullName,
+    role: targetRole,
+    status: 'active',
+    username,
+  });
+  if (profileError) {
+    await client.auth.admin.deleteUser(authUser.user.id);
+    return response(request, { error: 'Gagal membuat profil akun' }, 500);
+  }
+
+  // Insert ke tabel role-specific
+  if (targetRole === 'student') {
+    if (departmentId && validUuid(departmentId)) {
+      const { error: studentError } = await client.from('students').insert({
+        id: authUser.user.id,
+        department_id: departmentId,
+        student_number: Math.floor(Math.random() * 9000) + 1000,
+      });
+      if (studentError) {
+        await client.from('profiles').delete().eq('id', authUser.user.id);
+        await client.auth.admin.deleteUser(authUser.user.id);
+        return response(request, { error: 'Gagal membuat data siswa' }, 500);
+      }
+    }
+  } else if (targetRole === 'teacher') {
+    await client.from('teachers').upsert({ id: authUser.user.id, department_id: departmentId }, { onConflict: 'id' });
+  } else if (targetRole === 'admin') {
+    await client.from('admins').upsert({ id: authUser.user.id }, { onConflict: 'id' });
+  } else if (targetRole === 'superadmin') {
+    // superadmin tidak memiliki tabel role-specific terpisah; profile saja sudah cukup
+  }
+
+  return response(request, { user: { id: authUser.user.id, email, full_name: fullName, role: targetRole } }, 201);
+}
+
+async function resetAccountPassword(request: Request, client: SupabaseClient, actor: { role: string }) {
+  const body = await request.json().catch(() => ({})) as { user_id?: string; new_password?: string };
+  if (!validUuid(body.user_id)) return response(request, { error: 'user_id tidak valid' }, 400);
+  if (typeof body.new_password !== 'string' || body.new_password.length < 8) return response(request, { error: 'Password minimal 8 karakter' }, 400);
+  const { error } = await client.auth.admin.updateUserById(body.user_id!, { password: body.new_password });
+  if (error) return response(request, { error: 'Gagal mereset password: ' + error.message }, 500);
+  return response(request, { user_id: body.user_id, message: 'Password berhasil direset' });
+}
+
 Deno.serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...corsHeaders(request), 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' } });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...corsHeaders(request), 'Access-Control-Allow-Methods': 'POST, PATCH, OPTIONS', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' } });
   if (!['POST', 'PATCH'].includes(request.method)) return response(request, { error: 'POST or PATCH required' }, 405);
   const url = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -191,6 +286,8 @@ Deno.serve(async (request) => {
   const auth = await authenticatedClient(request);
   if ('error' in auth) return response(request, { error: auth.error }, 401);
   if (!['admin', 'superadmin'].includes(auth.profile.role)) return response(request, { error: 'Only admin or superadmin may manage staff' }, 403);
+  if (path.endsWith('/create-student')) return createStudent(request, auth.adminClient, { id: auth.user.id, role: auth.profile.role });
+  if (path.endsWith('/reset-password') && request.method === 'PATCH') return resetAccountPassword(request, auth.adminClient, { role: auth.profile.role });
   if (request.method === 'PATCH') return updateStaffStatus(request, auth.adminClient, { role: auth.profile.role });
   return createInvitation(request, auth.adminClient, { id: auth.user.id, role: auth.profile.role });
 });

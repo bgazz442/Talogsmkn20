@@ -49,6 +49,12 @@ class UserProfile {
 }
 
 class AuthService {
+  // Helper to generate password by repeating attendance/absen number three times, preserving leading zeros
+  static String generatePasswordFromAbsen(String absen) {
+    // Ensure at least two characters by padding with leading zero if needed
+    final padded = absen.padLeft(2, '0');
+    return '$padded$padded$padded';
+  }
   AuthService(this.client);
 
   final SupabaseClient client;
@@ -164,8 +170,25 @@ class AuthService {
     );
   }
 
-  Future<void> resetPassword(String email) async {
-    await client.auth.resetPasswordForEmail(email.trim().toLowerCase());
+  static const String recoveryDeepLink =
+      'id.sch.smkn20.talog20://reset-password';
+
+  static String get recoveryRedirectUrl {
+    if (kIsWeb) {
+      final origin = Uri.base.origin;
+      return '$origin/reset-password';
+    }
+    return recoveryDeepLink;
+  }
+
+  Future<void> resetPassword(String email, {String? redirectTo}) async {
+    final targetRedirect = (redirectTo != null && redirectTo.trim().isNotEmpty)
+        ? redirectTo.trim()
+        : recoveryRedirectUrl;
+    await client.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      redirectTo: targetRedirect,
+    );
   }
 
   Future<void> signOut() async {
@@ -529,7 +552,9 @@ class AuthService {
     required String departmentCode,
     required int attendanceNumber,
   }) async {
-    final password = '$attendanceNumber$attendanceNumber$attendanceNumber';
+    // Generate password from attendance number using helper to keep logic consistent
+    final String attendanceStr = attendanceNumber.toString().padLeft(2, '0');
+    final String password = AuthService.generatePasswordFromAbsen(attendanceStr);
     await client.auth.signUp(
       email: email.trim().toLowerCase(),
       password: password,
