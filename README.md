@@ -1,115 +1,131 @@
 # TALog20
 
-## Aplikasi Logbook & Monitoring Tugas SMKN 20 Jakarta
+## Aplikasi Logbook, Monitoring Tugas & Penilaian SMKN 20 Jakarta
 
-TALog20 adalah platform manajemen tugas akhir, logbook, pengumpulan tugas, penilaian, dan monitoring akademik berbasis **Flutter** dengan **Supabase PostgreSQL** sebagai backend.
+**TALog20** adalah aplikasi manajemen tugas dan monitoring akademik untuk SMKN 20 Jakarta yang dibangun menggunakan **Flutter** sebagai frontend dan **Supabase** sebagai backend.
 
-Sistem dirancang sebagai aplikasi multi-user dengan:
+TALog20 dirancang sebagai sistem multi-user untuk mengelola:
 
-- Supabase Auth
-- PostgreSQL
-- Row Level Security (RLS)
-- Role-Based Access Control (RBAC)
-- Supabase Storage
-- Supabase Realtime
-- UUID-based authentication
-- Audit log
-- Data isolation antar pengguna
+* Tugas siswa
+* Pengumpulan tugas
+* Upload file
+* Penilaian dan feedback
+* AI-assisted grading
+* Monitoring siswa dan tugas
+* Manajemen kelas dan jurusan
+* Dashboard berdasarkan role
+* Authentication
+* Audit log
+* Data isolation menggunakan PostgreSQL RLS
 
 ---
 
 # 1. Teknologi
 
-| Komponen | Teknologi |
-|---|---|
-| Framework | Flutter 3.44.8 |
-| Bahasa | Dart 3.12.2 |
-| Backend | Supabase |
-| Database | PostgreSQL 15+ |
-| Authentication | Supabase Auth |
-| Storage | Supabase Storage |
-| Realtime | Supabase Realtime |
-| Target Mobile | Android APK |
-| Target Testing | Web / Chrome |
-| IDE | Visual Studio Code / Android Studio |
+| Komponen       | Teknologi                                        |
+| -------------- | ------------------------------------------------ |
+| Framework      | Flutter 3.44.8                                   |
+| Bahasa         | Dart 3.12.2                                      |
+| Backend        | Supabase                                         |
+| Database       | PostgreSQL 15+                                   |
+| Authentication | Supabase Auth                                    |
+| Storage        | Supabase Storage                                 |
+| Security       | PostgreSQL Row Level Security                    |
+| Authorization  | Role-Based Access Control                        |
+| Realtime       | Supabase Realtime                                |
+| AI Grading     | Google Gemini API melalui Supabase Edge Function |
+| Mobile         | Android                                          |
+| Desktop        | Windows                                          |
+| Testing        | Chrome / Web                                     |
+| IDE            | Visual Studio Code / Android Studio              |
+
+Dependency utama Flutter:
+
+```yaml
+supabase_flutter
+file_picker
+flutter_secure_storage
+path_provider
+http
+url_launcher
+mime
+```
 
 ---
 
-# 2. Arsitektur Sistem
+# 2. Tujuan Sistem
 
-TALog20 menggunakan arsitektur:
+TALog20 dibuat untuk menyediakan satu sistem terintegrasi yang dapat digunakan oleh siswa, guru, admin, dan superadmin.
+
+Sistem menangani alur:
 
 ```text
-Flutter Application
+Guru membuat tugas
         │
         ▼
-Supabase Flutter SDK
+Tugas diberikan ke kelas
         │
-        ├── Supabase Auth
-        │       └── Authentication
+        ▼
+Siswa melihat tugas
         │
-        ├── PostgreSQL
-        │       ├── Profiles
-        │       ├── Students
-        │       ├── Teachers
-        │       ├── Admins
-        │       ├── Classes
-        │       ├── Todos
-        │       ├── Submissions
-        │       ├── Grades
-        │       └── Audit Logs
+        ├── Jawaban teks
         │
-        ├── Row Level Security (RLS)
-        │
-        ├── Storage
-        │       └── Assignment Submissions
-        │
-        └── Realtime
-````
-
-Identitas pengguna menggunakan:
-
-```text
-auth.users.id
-       │
-       ▼
-public.profiles.id
-```
-
-Dengan demikian, data pengguna dapat diisolasi berdasarkan:
-
-```sql
-auth.uid()
+        └── Upload file
+                │
+                ▼
+          Submission tersimpan
+                │
+                ▼
+       Guru melakukan penilaian
+                │
+        ┌───────┴────────┐
+        ▼                ▼
+   Manual grading     AI grading
+        │                │
+        └───────┬────────┘
+                ▼
+          Nilai & feedback
+                │
+                ▼
+        Siswa melihat hasil
 ```
 
 ---
 
-# 3. Sistem Role
+# 3. Role & Hak Akses
 
-TALog20 memiliki empat role utama.
+TALog20 menggunakan empat role utama:
+
+```text
+student
+teacher
+admin
+superadmin
+```
 
 ## Student
 
 Siswa dapat:
 
 * Login menggunakan email atau username
-* Melihat dashboard siswa
+* Melihat dashboard
 * Melihat tugas
-* Mengumpulkan tugas
-* Mengunggah file
-* Mengirim tautan/dokumen
+* Melihat tugas berdasarkan kelas
+* Mengirim jawaban
+* Mengunggah file tugas
+* Melihat status submission
 * Melihat nilai
-* Melihat feedback guru
+* Melihat feedback
 * Melihat profil
-* Mengubah username
-* Mengubah password
+* Mengubah informasi akun sesuai izin sistem
 
 Siswa tidak dapat:
 
-* Mengakses Admin Dashboard
+* Mengakses dashboard staff
 * Melihat data siswa lain
-* Mengakses data staff
+* Mengakses data internal staff
 * Mengubah role pengguna
+* Mengakses fungsi administratif
 
 ---
 
@@ -117,73 +133,429 @@ Siswa tidak dapat:
 
 Guru dapat:
 
-* Mengakses Admin Dashboard
+* Mengakses Teacher/Admin Dashboard
 * Membuat tugas
-* Melihat pengumpulan siswa
-* Melihat siswa berdasarkan kelas/jurusan
-* Memberikan nilai 0–100
+* Menentukan kelas penerima tugas
+* Menentukan format pengumpulan
+* Melihat submission siswa
+* Melihat file yang dikumpulkan
+* Memberikan nilai
 * Memberikan feedback
-* Memantau tugas
-* Menggunakan Staff Preview untuk melihat Student Dashboard
+* Melakukan penilaian manual
+* Menjalankan AI-assisted grading
+* Meninjau hasil penilaian AI
+* Melakukan Student Preview
 
 Guru tidak dapat:
 
-* Mengubah role pengguna
-* Mengakses audit log
-* Mengubah security policy
+* Mengubah role secara bebas
+* Mengubah security policy database
+* Mengambil alih kontrol superadmin
 
 ---
 
 ## Admin
 
-Admin dapat:
+Admin memiliki akses monitoring dan pengelolaan sistem yang lebih luas.
 
-* Mengakses Admin Dashboard
+Fitur:
+
+* Admin Dashboard
 * Monitoring tugas
-* Monitoring pengumpulan
-* Monitoring jurusan
-* Monitoring pengguna
-* Melakukan penilaian
-* Melihat audit log
-* Menggunakan Student Preview
-
-Admin tidak dapat:
-
-* Mengangkat pengguna menjadi superadmin
-* Mengubah security policy
-* Mengambil alih kontrol keamanan database
+* Monitoring submission
+* Monitoring siswa
+* Monitoring kelas dan jurusan
+* Penilaian
+* Audit log
+* Student Preview
+* Pengelolaan data operasional
 
 ---
 
 ## Superadmin
 
-Superadmin memiliki kontrol sistem tertinggi.
+Superadmin memiliki kontrol administratif tertinggi.
 
-Fitur:
+Fitur utama:
 
 * User Management
-* Mencari pengguna
-* Mengubah role menjadi teacher/admin
-* Monitoring seluruh tugas
-* Monitoring seluruh nilai
-* Monitoring seluruh jurusan
-* Melihat audit log
+* Manajemen role
+* Monitoring seluruh sistem
+* Monitoring tugas
+* Monitoring submission
+* Monitoring nilai
+* Monitoring jurusan
+* Audit log
 * Student Preview
-* Manajemen sistem secara global
+* Pengelolaan sistem secara global
 
-Akun bootstrap:
-
-```text
-abubangkir@gmail.com
-```
-
-Akun superadmin harus dilindungi dari demosi atau perubahan role melalui client biasa.
+Akun superadmin tidak dituliskan di repository untuk menjaga keamanan.
 
 ---
 
-# 4. Struktur Database
+# 4. Fitur Utama
 
-Database utama TALog20 terdiri dari tabel:
+## Authentication
+
+TALog20 menggunakan **Supabase Auth**.
+
+Login mendukung:
+
+```text
+Email
+   │
+   ▼
+Supabase Auth
+```
+
+atau:
+
+```text
+Username
+   │
+   ▼
+resolve_username_email()
+   │
+   ▼
+Email
+   │
+   ▼
+Supabase Auth
+```
+
+Identitas pengguna menggunakan UUID dari Supabase Auth.
+
+```text
+auth.users.id
+      │
+      ▼
+profiles.id
+```
+
+---
+
+# 5. Role-Based Access Control
+
+Role pengguna disimpan pada sistem profile dan digunakan untuk menentukan akses fitur.
+
+Role:
+
+```text
+student
+teacher
+admin
+superadmin
+```
+
+Akses tidak hanya dibatasi pada tampilan Flutter.
+
+Keamanan utama tetap berada pada:
+
+```text
+PostgreSQL
+    │
+    └── Row Level Security
+```
+
+---
+
+# 6. Data Isolation
+
+TALog20 menggunakan UUID pengguna dan:
+
+```sql
+auth.uid()
+```
+
+untuk membantu memastikan pengguna hanya dapat mengakses data yang diizinkan.
+
+Konsep:
+
+```text
+User A
+  │
+  └── UUID A
+       │
+       └── Data A
+
+User B
+  │
+  └── UUID B
+       │
+       └── Data B
+```
+
+Flutter tidak dijadikan satu-satunya lapisan keamanan.
+
+Pembatasan akses dilakukan melalui **PostgreSQL Row Level Security (RLS)**.
+
+---
+
+# 7. Manajemen Tugas
+
+Guru dapat membuat tugas dengan informasi seperti:
+
+* Nama tugas
+* Deskripsi
+* Jurusan
+* Kelas
+* Deadline
+* Format pengumpulan
+* Kriteria penilaian AI
+
+Format submission:
+
+```text
+essai
+file
+```
+
+Tugas dapat dikaitkan dengan kelas melalui:
+
+```text
+task_assignments
+```
+
+---
+
+# 8. Submission Siswa
+
+TALog20 mendukung tiga tipe pengumpulan:
+
+```text
+text
+file
+text_and_file
+```
+
+Data submission dapat menyimpan:
+
+* Jawaban teks
+* File path
+* Nama file
+* Ukuran file
+* MIME type
+* Waktu pengumpulan
+* Status submission
+
+Status submission meliputi:
+
+```text
+submitted
+graded
+late
+```
+
+---
+
+# 9. File Upload
+
+File submission disimpan pada Supabase Storage menggunakan bucket private:
+
+```text
+assignment-submissions
+```
+
+Batas ukuran file:
+
+```text
+50 MiB
+```
+
+Bucket tidak dibuat public.
+
+File dapat berupa berbagai format yang dikonfigurasi pada Storage, termasuk:
+
+```text
+PDF
+DOC
+DOCX
+XLS
+XLSX
+PPT
+PPTX
+TXT
+CSV
+PNG
+JPG
+JPEG
+GIF
+WEBP
+BMP
+SVG
+ZIP
+RAR
+7Z
+```
+
+Struktur penyimpanan menggunakan path berbasis identitas submission/pengguna.
+
+Akses file dikontrol menggunakan Storage RLS policy.
+
+---
+
+# 10. AI-Assisted Grading
+
+TALog20 memiliki fitur **AI-assisted grading** untuk membantu guru melakukan penilaian tugas berbasis file.
+
+Alurnya:
+
+```text
+Siswa
+  │
+  ▼
+Upload File
+  │
+  ▼
+Supabase Storage
+  │
+  ▼
+file-grade Edge Function
+  │
+  ▼
+Ekstraksi teks
+  │
+  ▼
+Google Gemini
+  │
+  ▼
+Score + Feedback
+  │
+  ▼
+Supabase Database
+```
+
+AI grading menggunakan kriteria yang ditentukan pada tugas.
+
+Contoh:
+
+```text
+Kriteria:
+1. Memiliki pendahuluan
+2. Menjelaskan metode
+3. Memiliki hasil
+4. Memiliki kesimpulan
+```
+
+AI mengevaluasi dokumen berdasarkan kriteria tersebut.
+
+Nilai dihitung secara proporsional berdasarkan jumlah kriteria yang terpenuhi.
+
+---
+
+# 11. Format File untuk AI Grading
+
+File yang saat ini dapat diproses oleh Edge Function `file-grade` untuk ekstraksi teks:
+
+```text
+TXT
+CSV
+PDF
+DOCX
+```
+
+File yang hanya berupa gambar/scan atau format binary yang tidak dapat diekstrak teksnya dapat ditolak oleh proses AI grading.
+
+AI grading juga membutuhkan:
+
+```text
+AI criteria
+```
+
+pada tugas.
+
+Jika tugas tidak memiliki kriteria AI, proses grading akan dihentikan.
+
+---
+
+# 12. AI Grade Review
+
+Hasil AI grading disimpan dengan informasi tambahan seperti:
+
+```text
+source
+ai_feedback
+needs_review
+confidence
+```
+
+Sumber nilai dapat berupa:
+
+```text
+manual
+auto
+ai
+```
+
+Nilai AI ditandai untuk ditinjau kembali oleh guru.
+
+Konsep:
+
+```text
+AI memberikan hasil
+        │
+        ▼
+needs_review = true
+        │
+        ▼
+Guru memeriksa
+        │
+        ▼
+Hasil akhir
+```
+
+AI digunakan sebagai alat bantu penilaian, bukan sebagai pengganti kontrol guru.
+
+---
+
+# 13. File Grading Edge Function
+
+Edge Function:
+
+```text
+supabase/functions/file-grade/
+```
+
+bertanggung jawab untuk:
+
+1. Memvalidasi authentication
+2. Memvalidasi role
+3. Mengambil submission
+4. Mengambil file dari Storage
+5. Mengekstrak teks
+6. Mengirim teks dan kriteria ke Gemini
+7. Memproses response AI
+8. Menyimpan hasil grading
+9. Mengubah status submission
+10. Mencatat aktivitas audit
+
+Role yang dapat menjalankan AI grading:
+
+```text
+teacher
+admin
+superadmin
+```
+
+---
+
+# 14. Gemini Chat
+
+Repository juga memiliki:
+
+```text
+supabase/functions/gemini-chat/
+```
+
+Namun fungsi tersebut saat ini masih berupa placeholder dan belum menjadi fitur chat AI production.
+
+Jangan menganggap Gemini Chat sudah aktif hanya karena folder Edge Function tersedia.
+
+---
+
+# 15. Database
+
+Struktur utama database TALog20 meliputi:
 
 ```text
 departments
@@ -193,14 +565,14 @@ teachers
 admins
 invitations
 
-todos
-submissions
-grades
-
 classes
 teacher_classes
 student_classes
+
+todos
 task_assignments
+submissions
+grades
 
 department_health
 dashboard_metrics
@@ -213,796 +585,69 @@ Relasi utama:
 
 ```text
 auth.users
-    │
-    ▼
+     │
+     ▼
 profiles
-    │
-    ├── students
-    │      │
-    │      └── student_classes
-    │
-    ├── teachers
-    │      │
-    │      └── teacher_classes
-    │
-    └── admins
-
+     │
+     ├── students
+     │      │
+     │      └── student_classes
+     │
+     ├── teachers
+     │      │
+     │      └── teacher_classes
+     │
+     └── admins
 
 departments
-    │
-    ├── students
-    ├── teachers
-    └── classes
+     │
+     ├── students
+     ├── teachers
+     └── classes
 
 classes
-    │
-    ├── student_classes
-    ├── teacher_classes
-    └── task_assignments
+     │
+     ├── student_classes
+     ├── teacher_classes
+     └── task_assignments
 
 todos
-    │
-    ├── task_assignments
-    └── submissions
+     │
+     ├── task_assignments
+     └── submissions
              │
              └── grades
 ```
 
 ---
 
-# 5. Database Migration
+# 16. Penilaian
 
-Urutan migration TALog20:
-
-```text
-202609040001_auth_roles.sql
-202609040002_project_data.sql
-202609040003_dashboard_seed.sql
-202609040004_complete_setup.sql
-202609050000_class_structure.sql
-202609050001_staff_security.sql
-202609050002_profile_contact_email.sql
-202609060001_hardening.sql
-202609060002_multi_user_hardening.sql
-```
-
-Fungsi masing-masing:
-
-### 202609040001_auth_roles.sql
-
-Membuat:
-
-* departments
-* profiles
-* students
-* teachers
-* admins
-* invitations
-
-### 202609040002_project_data.sql
-
-Membuat:
-
-* todos
-* submissions
-* grades
-
-### 202609040003_dashboard_seed.sql
-
-Membuat data dashboard:
-
-* dashboard_metrics
-* activity_feed
-* department health
-
-### 202609040004_complete_setup.sql
-
-Menambahkan:
-
-* classes
-* teacher_classes
-* student_classes
-* task_assignments
-* Storage submissions
-
-### 202609050000_class_structure.sql
-
-Normalisasi struktur kelas.
-
-### 202609050001_staff_security.sql
-
-Menambahkan:
-
-* Validasi role
-* Security function
-* RLS staff
-* Pembatasan akses staff
-
-### 202609050002_profile_contact_email.sql
-
-Menambahkan pemisahan email kontak personal.
-
-### 202609060001_hardening.sql
-
-Menambahkan trigger:
+TALog20 mendukung penilaian dengan rentang:
 
 ```text
-set_updated_at
+0 - 100
 ```
 
-untuk tabel yang membutuhkan `updated_at`.
+Data nilai dapat berisi:
 
-### 202609060002_multi_user_hardening.sql
+```text
+score
+feedback
+graded_at
+source
+ai_feedback
+needs_review
+confidence
+```
 
-Menambahkan:
-
-* username
-* audit_logs
-* resolve_username_email
-* update_user_role
-* proteksi superadmin
-* Storage isolation
+Guru dapat memberikan feedback kepada siswa setelah proses penilaian.
 
 ---
 
-# 6. SQL Struktur Database
+# 17. Audit Log
 
-> Query berikut digunakan untuk membentuk struktur dasar database.
->
-> Query ini **tidak membuat akun Supabase Auth** dan **tidak menyimpan password**.
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS citext;
-
-CREATE TABLE IF NOT EXISTS public.departments (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code citext UNIQUE NOT NULL,
-  name text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.profiles (
-  id uuid PRIMARY KEY REFERENCES auth.users(id),
-  email citext UNIQUE NOT NULL,
-  full_name text NOT NULL,
-  role text NOT NULL DEFAULT 'student'
-    CHECK (role IN ('student', 'teacher', 'admin', 'superadmin')),
-  status text NOT NULL DEFAULT 'active'
-    CHECK (status IN ('pending', 'active', 'disabled')),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  personal_email citext,
-  username text
-);
-
-CREATE TABLE IF NOT EXISTS public.students (
-  id uuid PRIMARY KEY REFERENCES public.profiles(id),
-  department_id uuid NOT NULL REFERENCES public.departments(id),
-  student_number integer NOT NULL CHECK (student_number > 0)
-);
-
-CREATE TABLE IF NOT EXISTS public.teachers (
-  id uuid PRIMARY KEY REFERENCES public.profiles(id),
-  department_id uuid REFERENCES public.departments(id),
-  personal_email citext,
-  internal_email citext UNIQUE
-);
-
-CREATE TABLE IF NOT EXISTS public.admins (
-  id uuid PRIMARY KEY REFERENCES public.profiles(id),
-  admin_number bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
-  personal_email citext,
-  internal_email citext UNIQUE
-);
-
-CREATE TABLE IF NOT EXISTS public.invitations (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  personal_email citext NOT NULL,
-  internal_email citext NOT NULL,
-  role text NOT NULL
-    CHECK (role IN ('teacher', 'admin')),
-  department_id uuid REFERENCES public.departments(id),
-  invited_by uuid NOT NULL REFERENCES public.profiles(id),
-  status text NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'accepted', 'revoked')),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  accepted_at timestamptz,
-  token_hash text,
-  expires_at timestamptz,
-  accepted_by uuid REFERENCES public.profiles(id)
-);
-
-CREATE TABLE IF NOT EXISTS public.todos (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  description text,
-  department_id uuid REFERENCES public.departments(id),
-  assigned_to uuid REFERENCES public.profiles(id),
-  due_at timestamptz,
-  is_complete boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.submissions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  todo_id uuid NOT NULL REFERENCES public.todos(id),
-  student_id uuid NOT NULL REFERENCES public.students(id),
-  file_url text,
-  note text,
-  submitted_at timestamptz NOT NULL DEFAULT now(),
-  submission_type text
-    CHECK (
-      submission_type IS NULL
-      OR submission_type IN ('text', 'file', 'text_and_file')
-    ),
-  content_text text,
-  file_path text,
-  file_name text,
-  file_size bigint,
-  mime_type text,
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  status text NOT NULL DEFAULT 'submitted'
-    CHECK (status IN ('draft', 'submitted', 'returned', 'graded'))
-);
-
-CREATE TABLE IF NOT EXISTS public.grades (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  submission_id uuid UNIQUE NOT NULL
-    REFERENCES public.submissions(id),
-  teacher_id uuid NOT NULL REFERENCES public.teachers(id),
-  score numeric NOT NULL CHECK (score >= 0 AND score <= 100),
-  feedback text,
-  graded_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.classes (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code text NOT NULL,
-  name text NOT NULL,
-  grade_level text NOT NULL,
-  department_id uuid NOT NULL REFERENCES public.departments(id),
-  academic_year text NOT NULL,
-  homeroom_teacher_id uuid REFERENCES public.teachers(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.teacher_classes (
-  teacher_id uuid NOT NULL REFERENCES public.teachers(id),
-  class_id uuid NOT NULL REFERENCES public.classes(id),
-  assigned_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (teacher_id, class_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.student_classes (
-  student_id uuid NOT NULL REFERENCES public.students(id),
-  class_id uuid NOT NULL REFERENCES public.classes(id),
-  enrolled_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (student_id, class_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.task_assignments (
-  todo_id uuid NOT NULL REFERENCES public.todos(id),
-  class_id uuid NOT NULL REFERENCES public.classes(id),
-  assigned_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (todo_id, class_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.department_health (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  department_id uuid UNIQUE NOT NULL
-    REFERENCES public.departments(id),
-  score integer NOT NULL CHECK (score >= 0 AND score <= 100),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.dashboard_metrics (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  metric_key text UNIQUE NOT NULL,
-  label text NOT NULL,
-  value text NOT NULL,
-  scope text NOT NULL
-    CHECK (scope IN ('student', 'teacher', 'solar')),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.activity_feed (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_name text NOT NULL,
-  detail text NOT NULL,
-  is_active boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.audit_logs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  actor_user_id uuid REFERENCES auth.users(id),
-  actor_role text NOT NULL,
-  action text NOT NULL,
-  target_user_id uuid REFERENCES auth.users(id),
-  target_table text,
-  target_record_id text,
-  description text,
-  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-```
-
----
-
-# 7. Supabase Setup
-
-## 7.1 Membuat Project
-
-Buat project baru di Supabase.
-
-Setelah project dibuat, buka:
-
-```text
-Supabase Dashboard
-        ↓
-Connect
-```
-
-Ambil:
-
-```text
-Project URL
-Publishable Key
-```
-
-Contoh:
-
-```text
-Project URL:
-https://<project-ref>.supabase.co
-
-Publishable Key:
-sb_publishable_<your-key>
-```
-
-> Jangan gunakan `service_role` key atau secret key di aplikasi Flutter.
-
----
-
-# 8. Menjalankan SQL di Supabase
-
-Masuk ke:
-
-```text
-Supabase Dashboard
-        ↓
-SQL Editor
-        ↓
-New Query
-```
-
-Kemudian masukkan migration SQL sesuai urutan.
-
-Contoh:
-
-```text
-001_auth_roles.sql
-002_project_data.sql
-003_dashboard_seed.sql
-...
-```
-
-Jalankan satu per satu sesuai urutan migration.
-
-> Jangan menjalankan migration secara acak karena beberapa tabel memiliki foreign key terhadap tabel lain.
-
----
-
-# 9. Koneksi Flutter dengan Supabase
-
-## 9.1 Install Supabase Flutter
-
-Jalankan:
-
-```bash
-flutter pub add supabase_flutter
-```
-
-Cek:
-
-```bash
-flutter pub get
-```
-
----
-
-# 10. Konfigurasi Environment
-
-TALog20 menggunakan:
-
-```text
---dart-define
-```
-
-untuk memasukkan konfigurasi Supabase.
-
-Format:
-
-```text
-SUPABASE_URL
-SUPABASE_ANON_KEY
-```
-
-atau publishable key sesuai konfigurasi project Supabase.
-
-Jangan menaruh secret key di source code.
-
----
-
-# 11. Inisialisasi Supabase
-
-Contoh dasar `lib/main.dart`:
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  const supabaseUrl = String.fromEnvironment(
-    'SUPABASE_URL',
-  );
-
-  const supabaseAnonKey = String.fromEnvironment(
-    'SUPABASE_ANON_KEY',
-  );
-
-  if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
-    throw Exception(
-      'SUPABASE_URL dan SUPABASE_ANON_KEY belum dikonfigurasi.',
-    );
-  }
-
-  await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-  );
-
-  runApp(const MyApp());
-}
-
-final supabase = Supabase.instance.client;
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'TALog20',
-      home: const Scaffold(
-        body: Center(
-          child: Text('TALog20'),
-        ),
-      ),
-    );
-  }
-}
-```
-
-> Jika versi `supabase_flutter` yang digunakan menggunakan parameter `publishableKey`, gunakan parameter tersebut sesuai API versi SDK yang terpasang.
-
----
-
-# 12. Test Koneksi Supabase
-
-Contoh mengambil data:
-
-```dart
-final data = await supabase
-    .from('todos')
-    .select()
-    .order('created_at', ascending: false);
-
-print(data);
-```
-
-Jika berhasil, Flutter sudah terhubung dengan PostgreSQL Supabase.
-
----
-
-# 13. Authentication
-
-TALog20 menggunakan Supabase Auth.
-
-User tidak dibuat dengan:
-
-```sql
-INSERT INTO auth.users
-```
-
-User harus dibuat melalui Supabase Auth.
-
----
-
-## 13.1 Login dengan Email
-
-```dart
-final response = await supabase.auth.signInWithPassword(
-  email: email,
-  password: password,
-);
-```
-
-Contoh:
-
-```dart
-await supabase.auth.signInWithPassword(
-  email: 'student@example.com',
-  password: password,
-);
-```
-
-Password harus berasal dari input pengguna atau sistem autentikasi resmi.
-
-Jangan hard-code password production.
-
----
-
-# 14. Login dengan Username
-
-TALog20 mendukung:
-
-```text
-Email
-atau
-Username
-```
-
-Alur:
-
-```text
-Input Login
-    │
-    ├── Email
-    │      ↓
-    │   Supabase Auth
-    │
-    └── Username
-           ↓
-    resolve_username_email()
-           ↓
-         Email
-           ↓
-    Supabase Auth
-```
-
-Resolusi username dilakukan melalui RPC PostgreSQL:
-
-```text
-resolve_username_email
-```
-
-Tujuannya agar Flutter tidak perlu mencari email pengguna secara langsung dari tabel public.
-
----
-
-# 15. Current User
-
-Untuk mendapatkan user yang sedang login:
-
-```dart
-final user = supabase.auth.currentUser;
-
-if (user != null) {
-  print(user.id);
-  print(user.email);
-}
-```
-
-UUID user:
-
-```dart
-final userId = supabase.auth.currentUser!.id;
-```
-
-UUID tersebut digunakan untuk isolasi data.
-
----
-
-# 16. Mengambil Profile User
-
-```dart
-final userId = supabase.auth.currentUser!.id;
-
-final profile = await supabase
-    .from('profiles')
-    .select()
-    .eq('id', userId)
-    .single();
-
-print(profile);
-```
-
----
-
-# 17. Mengambil Submission Milik Siswa
-
-```dart
-final userId = supabase.auth.currentUser!.id;
-
-final submissions = await supabase
-    .from('submissions')
-    .select()
-    .eq('student_id', userId)
-    .order('submitted_at', ascending: false);
-```
-
-RLS PostgreSQL tetap menjadi lapisan keamanan utama.
-
-Flutter tidak boleh mengandalkan filter UI saja.
-
----
-
-# 18. Mengambil Nilai Siswa
-
-```dart
-final userId = supabase.auth.currentUser!.id;
-
-final grades = await supabase
-    .from('grades')
-    .select('''
-      id,
-      score,
-      feedback,
-      graded_at,
-      submissions!inner(
-        id,
-        student_id,
-        todo_id
-      )
-    ''')
-    .eq('submissions.student_id', userId)
-    .order('graded_at', ascending: false);
-```
-
----
-
-# 19. Upload File Submission
-
-Bucket Storage untuk submission harus bersifat:
-
-```text
-PRIVATE
-```
-
-Contoh struktur path:
-
-```text
-assignment-submissions/
-    <user-id>/
-        <todo-id>/
-            <file-name>
-```
-
-Contoh Flutter:
-
-```dart
-final userId = supabase.auth.currentUser!.id;
-
-final filePath = '$userId/$todoId/$fileName';
-
-await supabase.storage
-    .from('assignment-submissions')
-    .uploadBinary(
-      filePath,
-      fileBytes,
-      fileOptions: FileOptions(
-        contentType: mimeType,
-        upsert: false,
-      ),
-    );
-```
-
----
-
-# 20. Storage Security
-
-Storage submission harus menggunakan policy.
-
-Konsep isolasinya:
-
-```text
-Student A
-    ↓
-/student-a/...
-    ↓
-Boleh akses file sendiri
-
-Student B
-    ↓
-/student-a/...
-    ↓
-DITOLAK
-```
-
-Guru/staff yang memiliki izin dapat mengakses submission sesuai department/class yang menjadi tanggung jawabnya.
-
-Jangan membuat Storage policy seperti:
-
-```sql
-USING (true)
-```
-
-untuk file submission yang bersifat privat.
-
----
-
-# 21. Row Level Security
-
-RLS merupakan bagian penting dari keamanan TALog20.
-
-Setiap tabel yang berisi data pengguna harus menggunakan RLS sesuai kebutuhan.
-
-Contoh konsep:
-
-```sql
-auth.uid()
-```
-
-digunakan untuk memastikan pengguna hanya dapat mengakses data miliknya.
-
-Contoh:
-
-```sql
-SELECT *
-FROM public.submissions
-WHERE student_id = auth.uid();
-```
-
-Namun filter Flutter saja tidak cukup.
-
-Keamanan sebenarnya harus berada di PostgreSQL RLS.
-
----
-
-# 22. Data Isolation
-
-Contoh:
-
-```text
-User A
-UUID: aaa-aaa
-```
-
-dan:
-
-```text
-User B
-UUID: bbb-bbb
-```
-
-User A hanya boleh mengakses data:
-
-```text
-student_id = aaa-aaa
-```
-
-User B hanya boleh mengakses:
-
-```text
-student_id = bbb-bbb
-```
-
-RLS harus memastikan user tidak dapat mengganti parameter client untuk membaca data user lain.
-
----
-
-# 23. Audit Log
-
-Aktivitas penting sistem dicatat pada:
+Aktivitas penting sistem dapat dicatat pada:
 
 ```text
 public.audit_logs
@@ -1019,190 +664,275 @@ TASK_CREATED
 SUBMISSION_CREATED
 GRADE_CREATED
 FEEDBACK_UPDATED
+AI_FILE_GRADING_RUN
 ```
+
+Audit log digunakan untuk membantu monitoring aktivitas sistem.
+
+Konsepnya:
+
+```text
+User Action
+     │
+     ▼
+Application
+     │
+     ▼
+Audit Event
+     │
+     ▼
+audit_logs
+```
+
+---
+
+# 18. Security
+
+Keamanan TALog20 menggunakan beberapa lapisan:
+
+```text
+Supabase Auth
+      │
+      ▼
+UUID Identity
+      │
+      ▼
+RBAC
+      │
+      ▼
+PostgreSQL RLS
+      │
+      ▼
+Storage RLS
+      │
+      ▼
+Audit Log
+```
+
+Prinsip keamanan:
+
+* Jangan menggunakan service role key di aplikasi Flutter.
+* Jangan menyimpan password di source code.
+* Jangan membuat Storage submission menjadi public.
+* Jangan mengandalkan filter UI sebagai security.
+* Gunakan RLS untuk data pengguna.
+* Gunakan Edge Function untuk operasi server-side yang membutuhkan secret.
+* Secret API AI harus disimpan sebagai environment/secret server-side.
+
+---
+
+# 19. Secure Authentication Storage
+
+TALog20 menggunakan:
+
+```text
+flutter_secure_storage
+```
+
+untuk kebutuhan penyimpanan credential/session tertentu pada sisi client.
+
+File terkait:
+
+```text
+lib/secure_auth_storage.dart
+```
+
+Tujuannya adalah menghindari penyimpanan informasi autentikasi sensitif menggunakan penyimpanan biasa.
+
+---
+
+# 20. Supabase Setup
+
+Buat project pada Supabase kemudian siapkan:
+
+```text
+Project URL
+Publishable / Anon Key
+```
+
+Konfigurasi dapat diberikan melalui:
+
+```text
+--dart-define
+```
+
+Contoh:
+
+```bash
+flutter run \
+  --dart-define=SUPABASE_URL=YOUR_SUPABASE_URL \
+  --dart-define=SUPABASE_ANON_KEY=YOUR_SUPABASE_KEY
+```
+
+Jangan memasukkan:
+
+```text
+service_role key
+secret key
+AI API key
+```
+
+ke dalam source code Flutter atau repository public.
+
+Secret yang digunakan Edge Function harus dikonfigurasi di environment Supabase.
+
+---
+
+# 21. Database Migration
+
+Migration berada di:
+
+```text
+supabase/migrations/
+```
+
+Migration terbaru mencakup pengembangan sistem AI grading dan file submission.
+
+Contoh:
+
+```text
+202609160001_fix_grading_rls.sql
+202609190001_ai_grading.sql
+202609200001_file_grading.sql
+```
+
+Migration file grading menambahkan dukungan:
+
+* File submission
+* Submission format
+* AI criteria
+* AI grade metadata
+* Private Storage bucket
+* Storage policies
+* Index tambahan
+
+Migration harus dijalankan sesuai urutan pada project Supabase.
+
+---
+
+# 22. Supabase Edge Functions
 
 Struktur:
 
 ```text
-actor_user_id
-actor_role
-action
-target_user_id
-target_table
-target_record_id
-description
-metadata
-created_at
+supabase/
+└── functions/
+    ├── file-grade/
+    │   └── index.ts
+    │
+    ├── gemini-chat/
+    │   └── index.ts
+    │
+    ├── manage-staff/
+    │   └── index.ts
+    │
+    └── deno.json
 ```
 
-Audit log dirancang sebagai:
+Fungsi utama:
+
+### file-grade
+
+AI-assisted grading untuk submission berbasis file.
+
+### gemini-chat
+
+Placeholder untuk pengembangan fitur Gemini Chat.
+
+### manage-staff
+
+Menangani operasi terkait manajemen staff sesuai authorization sistem.
+
+---
+
+# 23. Struktur Project
+
+Struktur utama:
 
 ```text
-APPEND-ONLY
-```
-
-Client tidak boleh bebas:
-
-```text
-UPDATE audit_logs
-DELETE audit_logs
+talog20/
+│
+├── android/
+├── ios/
+├── linux/
+├── macos/
+├── windows/
+│
+├── lib/
+│   ├── main.dart
+│   ├── auth_service.dart
+│   ├── dashboard_service.dart
+│   ├── secure_auth_storage.dart
+│   └── ...
+│
+├── supabase/
+│   ├── functions/
+│   │   ├── file-grade/
+│   │   ├── gemini-chat/
+│   │   └── manage-staff/
+│   │
+│   └── migrations/
+│
+├── docs/
+│   └── manual-book-pengguna.md
+│
+├── test/
+│
+├── pubspec.yaml
+├── pubspec.lock
+└── README.md
 ```
 
 ---
 
-# 24. Dashboard
+# 24. Menjalankan Project
 
-## Student Dashboard
+Clone repository:
 
-Menampilkan:
-
-* Greeting berdasarkan waktu
-* Status tugas
-* Progress tugas
-* Submission
-* Nilai
-* Feedback
-* Profil
-
-Greeting:
-
-```text
-Good Morning
-Good Afternoon
-Good Night
+```bash
+git clone https://github.com/bgazz442/Talogsmkn20.git
 ```
 
-Tema dapat menyesuaikan waktu perangkat.
+Masuk ke folder:
 
----
-
-## Admin Dashboard
-
-Tab utama:
-
-```text
-Overview
-Tugas
-Pengumpulan & Penilaian
-User Management
-Audit Log
-Buka Student View
+```bash
+cd Talogsmkn20
 ```
 
-### Overview
+Install dependency:
 
-Menampilkan:
-
-* Live metrics
-* Student Activity Feed
-* Department Health
-
-### Tugas
-
-Untuk:
-
-* Membuat tugas
-* Mengelola tugas
-* Mengatur assignment
-
-### Pengumpulan & Penilaian
-
-Untuk:
-
-* Melihat submission
-* Memberikan nilai
-* Memberikan feedback
-* Monitoring status
-
-### User Management
-
-Khusus superadmin:
-
-* Search user
-* Melihat role
-* Mengubah role sesuai kewenangan
-
-### Audit Log
-
-Untuk:
-
-* Monitoring aktivitas sistem
-* Investigasi perubahan data
-
----
-
-# 25. Staff Preview
-
-Guru dan admin dapat membuka:
-
-```text
-Student View
+```bash
+flutter pub get
 ```
 
-Preview harus menggunakan sesi staff yang sedang aktif.
+Cek Flutter:
 
-Tidak boleh:
-
-```text
-Memalsukan token
-Mengganti auth.uid()
-Membuat session palsu
+```bash
+flutter doctor
 ```
 
-Preview hanya mengubah konteks tampilan aplikasi, sedangkan keamanan database tetap dikontrol oleh Supabase Auth dan RLS.
+Jalankan:
 
----
-
-# 26. Dokumentasi User
-
-Gunakan data contoh berikut:
-
-```text
-Student:
-student@example.com
-
-Teacher:
-teacher@example.com
-
-Admin:
-admin@example.com
-
-Password:
-<DIATUR_DI_SUPABASE_AUTH>
+```bash
+flutter run
 ```
 
-Jangan menggunakan akun production dalam README.
+Atau dengan konfigurasi Supabase:
 
----
-
-# 27. Menjalankan di Chrome
-
-Gunakan:
-
-```powershell
-flutter run -d chrome `
-  --dart-define=SUPABASE_URL="https://<project-ref>.supabase.co" `
-  --dart-define=SUPABASE_ANON_KEY="<SUPABASE_PUBLISHABLE_KEY>"
+```bash
+flutter run \
+  --dart-define=SUPABASE_URL=YOUR_SUPABASE_URL \
+  --dart-define=SUPABASE_ANON_KEY=YOUR_SUPABASE_KEY
 ```
 
 ---
 
-# 28. Menjalankan di Android
+# 25. Build Android
 
-```powershell
-flutter run -d android `
-  --dart-define=SUPABASE_URL="https://<project-ref>.supabase.co" `
-  --dart-define=SUPABASE_ANON_KEY="<SUPABASE_PUBLISHABLE_KEY>"
-```
+Build APK:
 
----
-
-# 29. Build APK Release
-
-```powershell
-flutter build apk --release `
-  --dart-define=SUPABASE_URL="https://<project-ref>.supabase.co" `
-  --dart-define=SUPABASE_ANON_KEY="<SUPABASE_PUBLISHABLE_KEY>"
+```bash
+flutter build apk --release
 ```
 
 Output:
@@ -1213,9 +943,9 @@ build/app/outputs/flutter-apk/app-release.apk
 
 ---
 
-# 30. Build Windows EXE
+# 26. Build Windows
 
-Pastikan Windows desktop support sudah aktif.
+Pastikan Windows Desktop sudah tersedia:
 
 ```bash
 flutter config --enable-windows-desktop
@@ -1223,13 +953,11 @@ flutter config --enable-windows-desktop
 
 Kemudian:
 
-```powershell
-flutter build windows --release `
-  --dart-define=SUPABASE_URL="https://<project-ref>.supabase.co" `
-  --dart-define=SUPABASE_ANON_KEY="<SUPABASE_PUBLISHABLE_KEY>"
+```bash
+flutter build windows --release
 ```
 
-Output:
+Output berada pada:
 
 ```text
 build/windows/x64/runner/Release/
@@ -1237,483 +965,162 @@ build/windows/x64/runner/Release/
 
 ---
 
-# 31. Development Checklist
+# 27. Testing
 
-Sebelum menjalankan aplikasi:
+Cek analyzer:
+
+```bash
+flutter analyze
+```
+
+Jalankan test:
+
+```bash
+flutter test
+```
+
+Cek dependency:
+
+```bash
+flutter pub get
+```
+
+Untuk pengujian aplikasi:
 
 ```text
-[ ] Flutter sudah terinstall
-[ ] Flutter version 3.44.8
-[ ] Dart version 3.12.2
-[ ] Supabase project sudah dibuat
-[ ] Database migration sudah dijalankan
-[ ] RLS sudah aktif
-[ ] Storage bucket sudah dibuat
-[ ] Storage policy sudah dibuat
-[ ] Supabase URL sudah benar
-[ ] Publishable/Anon key sudah benar
-[ ] Auth sudah dikonfigurasi
+Android
+Windows
+Chrome
 ```
 
 ---
 
-# 32. Security Checklist
+# 28. Dokumentasi
 
-Jangan pernah menyimpan:
+Manual pengguna tersedia pada:
 
 ```text
-service_role key
-secret key
-password production
-access token
-refresh token
+docs/manual-book-pengguna.md
 ```
 
-di:
+Dokumentasi teknis utama terdapat pada:
 
 ```text
 README.md
-GitHub repository
-source code public
-screenshot
-chat
-```
-
-Gunakan:
-
-```text
-SUPABASE_URL
-SUPABASE_ANON_KEY
-```
-
-atau publishable key untuk aplikasi client.
-
-Keamanan data tetap harus dilakukan menggunakan:
-
-```text
-Supabase Auth
-+
-PostgreSQL RLS
-+
-Storage Policy
-+
-RPC Security
-+
-Audit Log
+supabase/migrations/
+supabase/functions/
 ```
 
 ---
 
-# 33. Contoh Query Membaca Profile
+# 29. Status Pengembangan
 
-```sql
-SELECT
-  id,
-  email,
-  full_name,
-  role,
-  status
-FROM public.profiles
-WHERE email = 'student@example.com';
-```
+Fitur utama yang sudah tersedia di repository:
 
----
-
-# 34. Contoh Query Submission User
-
-```sql
-SELECT
-  id,
-  todo_id,
-  student_id,
-  file_path,
-  file_name,
-  file_size,
-  mime_type,
-  status,
-  submitted_at
-FROM public.submissions
-WHERE student_id = auth.uid()
-ORDER BY submitted_at DESC;
-```
+* [x] Flutter application
+* [x] Supabase integration
+* [x] Supabase Authentication
+* [x] Multi-role system
+* [x] Student dashboard
+* [x] Staff dashboard
+* [x] Task management
+* [x] Class management
+* [x] Student submission
+* [x] Text submission
+* [x] File submission
+* [x] Private Supabase Storage
+* [x] PostgreSQL RLS
+* [x] Role-based access control
+* [x] Audit log
+* [x] Manual grading
+* [x] AI-assisted file grading
+* [x] Gemini integration untuk file grading
+* [x] AI grading review flag
+* [x] Secure authentication storage
+* [x] Android build
+* [x] Windows build
+* [ ] Gemini Chat production implementation
 
 ---
 
-# 35. Contoh Query Nilai User
-
-```sql
-SELECT
-  g.id,
-  g.submission_id,
-  g.score,
-  g.feedback,
-  g.graded_at
-FROM public.grades AS g
-JOIN public.submissions AS s
-  ON s.id = g.submission_id
-WHERE s.student_id = auth.uid()
-ORDER BY g.graded_at DESC;
-```
-
----
-
-# 36. Struktur Folder Flutter
-
-Struktur yang direkomendasikan:
-
-```text
-lib/
-├── main.dart
-│
-├── core/
-│   ├── config/
-│   ├── constants/
-│   ├── theme/
-│   └── utils/
-│
-├── models/
-│   ├── profile.dart
-│   ├── student.dart
-│   ├── teacher.dart
-│   ├── todo.dart
-│   ├── submission.dart
-│   └── grade.dart
-│
-├── services/
-│   ├── auth_service.dart
-│   ├── profile_service.dart
-│   ├── task_service.dart
-│   ├── submission_service.dart
-│   ├── grade_service.dart
-│   └── storage_service.dart
-│
-├── screens/
-│   ├── auth/
-│   ├── student/
-│   ├── teacher/
-│   ├── admin/
-│   └── superadmin/
-│
-├── widgets/
-│
-└── routes/
-```
-
----
-
-# 37. Prinsip Pengembangan
+# 30. Prinsip Arsitektur
 
 TALog20 mengikuti prinsip:
 
 ```text
-Security First
-Data Isolation
-Role-Based Access Control
-Server-Side Authorization
-Clean Architecture
-Reusable Components
-Responsive UI
-Realtime Monitoring
+Flutter
+   │
+   ▼
+Application Layer
+   │
+   ▼
+Supabase
+   │
+   ├── Auth
+   ├── PostgreSQL
+   ├── Storage
+   ├── Edge Functions
+   └── Realtime
 ```
 
-Client Flutter bertanggung jawab terhadap:
+Security boundary:
 
 ```text
-UI
-State
-Navigation
-User Interaction
+Client
+  │
+  ├── Authentication
+  │
+  └── Public/Publishable credentials
+             │
+             ▼
+        Supabase
+             │
+       ┌─────┴─────┐
+       ▼           ▼
+      RLS      Edge Functions
+                   │
+                   ▼
+             Server Secrets
 ```
 
-Supabase bertanggung jawab terhadap:
+---
+
+# 31. Repository
+
+Source code TALog20 tersedia di GitHub:
+
+```text
+https://github.com/bgazz442/Talogsmkn20
+```
+
+---
+
+# 32. Ringkasan
+
+**TALog20** merupakan platform akademik berbasis Flutter dan Supabase yang menggabungkan:
 
 ```text
 Authentication
-Authorization
-Database
-RLS
-Storage
-Realtime
-Audit
-```
-
----
-
-# 38. Alur Login
-
-```text
-User
- │
- ▼
-Login Page
- │
- ├── Email
- │      │
- │      ▼
- │   Supabase Auth
- │
- └── Username
-        │
-        ▼
- resolve_username_email()
-        │
-        ▼
-      Email
-        │
-        ▼
- Supabase Auth
-        │
-        ▼
-   auth.uid()
-        │
-        ▼
- public.profiles
-        │
-        ▼
-      Check Role
-        │
- ┌──────┼─────────────┐
- ▼      ▼             ▼
-Student Teacher     Admin
-                    │
-                    ▼
-                Superadmin
-```
-
----
-
-# 39. Alur Submission
-
-```text
-Student
-   │
-   ▼
-Student Dashboard
-   │
-   ▼
-Pilih Tugas
-   │
-   ▼
-Upload File / Link / Text
-   │
-   ▼
-Supabase Storage
-   │
-   ▼
-public.submissions
-   │
-   ▼
-Teacher/Admin
-   │
-   ▼
-Review
-   │
-   ▼
-Score + Feedback
-   │
-   ▼
-public.grades
-   │
-   ▼
-Student Dashboard
-```
-
----
-
-# 40. Alur Role Management
-
-```text
-Superadmin
-    │
-    ▼
-User Management
-    │
-    ▼
-Search User
-    │
-    ▼
-Pilih User
-    │
-    ▼
-update_user_role()
-    │
-    ├── student
-    ├── teacher
-    └── admin
-```
-
-Superadmin tidak dapat diubah menjadi role lain melalui operasi client biasa.
-
----
-
-# 41. Catatan Penting Database
-
-SQL struktur database di atas hanya membuat:
-
-```text
-TABLE
-EXTENSION
-FOREIGN KEY
-CHECK CONSTRAINT
-```
-
-SQL tersebut **belum mencakup seluruh security configuration**.
-
-Komponen keamanan berikut harus dikonfigurasi secara terpisah:
-
-```text
-RLS Policy
-Storage Policy
-RPC Security
-Trigger
-Function
-Audit Protection
-```
-
-Gunakan migration security yang terdapat pada repository sebagai sumber konfigurasi security utama.
-
----
-
-# 42. Troubleshooting
-
-## Supabase tidak terhubung
-
-Periksa:
-
-```text
-SUPABASE_URL
-SUPABASE_ANON_KEY
-```
-
-Kemudian jalankan ulang:
-
-```bash
-flutter clean
-flutter pub get
-flutter run
-```
-
----
-
-## Error `auth.uid()`
-
-Pastikan user sudah login:
-
-```dart
-final user = supabase.auth.currentUser;
-
-if (user == null) {
-  // User belum login
-}
-```
-
----
-
-## Data tidak muncul
-
-Periksa:
-
-```text
-RLS Policy
-User Authentication
-UUID
-Foreign Key
-Role
-```
-
-Jangan langsung menonaktifkan RLS hanya untuk menghilangkan error.
-
----
-
-## Upload Storage gagal
-
-Periksa:
-
-```text
-Bucket name
-Bucket visibility
-Storage policy
-File path
-Authenticated session
-```
-
----
-
-# 43. Prinsip Keamanan Utama
-
-TALog20 **tidak menganggap Flutter sebagai lapisan keamanan utama**.
-
-Flutter hanya merupakan client.
-
-Keamanan sebenarnya berada di:
-
-```text
-Supabase Auth
-      +
+       +
+Role Management
+       +
+Task Management
+       +
+Class Management
+       +
+File Submission
+       +
+Private Storage
+       +
+Manual Grading
+       +
+AI-Assisted Grading
+       +
+Dashboard
+       +
+Audit Log
+       +
 PostgreSQL RLS
-      +
-Storage Policy
-      +
-Secure RPC
-      +
-Database Constraint
 ```
 
-Contoh:
-
-```text
-Flutter:
-"Ambil data submission."
-
-        ↓
-
-Supabase
-
-        ↓
-
-PostgreSQL RLS
-
-        ↓
-
-Apakah user berhak?
-
-   ┌────┴────┐
-   │         │
-  YES        NO
-   │         │
-   ▼         ▼
- Data       Error
-```
-
----
-
-# 44. License
-
-Project ini dibuat untuk kebutuhan pengembangan dan monitoring akademik SMKN 20 Jakarta.
-
-```text
-TALog20
-© SMKN 20 Jakarta
-```
-
----
-
-# 45. Status Project
-
-```text
-Project: TALog20
-Platform: Flutter
-Backend: Supabase
-Database: PostgreSQL
-Authentication: Supabase Auth
-Storage: Supabase Storage
-Security: PostgreSQL RLS
-Status: Development
-```
-
----
-
-```
-
-**Catatan penting:** saya sengaja memisahkan **SQL struktur database** dari **RLS/Storage policy**, karena kalau semua digabung sebagai satu SQL tanpa memastikan urutan function, trigger, policy, dan dependency-nya, justru lebih mudah muncul error di Supabase. Untuk repository GitHub, struktur README di atas sudah jauh lebih enak dijadikan dokumentasi teknis project.
-```
+Sistem dikembangkan dengan fokus pada **multi-user architecture, data isolation, security, task management, dan integrasi AI untuk membantu proses penilaian tugas**.
